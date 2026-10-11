@@ -6,6 +6,7 @@
 **Audience:** The coding agent that will scaffold this, and Rohan (interview prep).
 **Changes 2026-10-11 (rev 2):** proposals 0001 and 0002 accepted with amendments. Follow-up 401/404 is fatal and takes the channel fallback at once (§8.1, §10.2, §14); `retryAfterMs` + `retryDelayMs` added; rule configs, `Action`, `ctx` and all status enums defined (§8.3, §9); worker step order and idempotency markers fixed (§10.2, §11.3).
 **Changes 2026-10-11 (rev 3, 3.1):** proposals 0003 and 0004 accepted; `node:crypto` allowed in `domain/signature.ts` only. `packages/shared` is a leaf package (zod only) and the single home of enums, rule schemas and defaults; `domain` may import it (§7, §8.3). §11.3 end state and skip conditions made consistent.
+**Changes 2026-10-11 (rev 4):** §9 data-model decisions for Step 2: guild upsert in the ledger txn, what gets recorded, UTC "today", pg + plain SQL migrations, request-path DB timeouts.
 
 ---
 
@@ -306,7 +307,16 @@ src/
   domain/                 # pure, no I/O, the hard unit tests live here
     signature.ts          # verifySignature(timestamp, rawBody, publicKey): boolean
     router.ts             # classify(interaction): RouteDecision
-    reply.ts              # ReplyBuilder: pong/message/defer/modal/updateMessage JSON
+    # ReplyBuilder (§2.3), split by reason-to-change, not by kind of declaration:
+    discordProtocol.ts    # Discord wire constants, limits, JSON types (changes when Discord does)
+    discordResponses.ts   # pong/message/defer/deferUpdate/updateMessage; plainBody = the ONE place
+                          #   allowed_mentions and the 2000-char cut are applied
+    discordText.ts        # truncate (code-point safe)
+    messages.ts           # every user-visible string
+    status.ts             # StatusCounts, statusText (/status)
+    reportModal.ts        # /report modal (type 9)
+    reportButtons.ts      # button custom_id encode + parse (one contract, one file)
+    reportReplies.ts      # PATCH @original result body, channel fallback body
     rules.ts              # RuleEngine: evaluate(command, ctx, rule): Action ; validateRule(json)
     retry.ts              # classifyFailure(failure): Outcome ; nextBackoffMs(...) ; retryDelayMs(...)  (§8.1)
     types.ts              # Actor, Tenant, MessageRef, Action (backend-only); re-exports the enums from @report-line/shared
@@ -705,6 +715,14 @@ erDiagram
 **Enum columns (CHECK constraints, values from §8.3):** `INTERACTION.status` ∈ InteractionStatus; `JOB.status` ∈ JobStatus; `JOB.kind` ∈ JobKind; `JOB_ATTEMPT.outcome` ∈ AttemptOutcome; `JOB_ATTEMPT.target` ∈ AttemptTarget (which call the attempt was, so the dashboard can say "Slack 503" vs "Discord 401"); `ACTION.type` ∈ ActionType; `ACTION.mirror_status` ∈ MirrorStatus; `COMMAND_RULE.command_name` ∈ `('status','report')`. PINGs, rejected requests, duplicates and DMs are never stored, so they have no status value.
 
 **Step markers for the one-job-per-interaction worker:** the `ACTION` row is inserted in the **same outbox transaction** as the interaction and job (`mirror_status = 'pending'` if the rule says mirror, else `'skipped'`; `llm_tag` NULL). The worker only ever UPDATEs it. `llm_tag IS NOT NULL` = tagging done; `mirror_status = 'sent'` = the "mirrored" marker §14 requires. Each marker is committed immediately after its step succeeds, before the next outbound call.
+
+**Rev 4 data-model decisions (made before Step 2 so the ledger isn't blocked):**
+- **Unknown guilds.** `INTERACTION.guild_id` references `GUILD`, but a guild row exists before any admin connects it (F-02 is Step 4). The ledger transaction starts with `INSERT INTO guild (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`. `GUILD.name`, `post_channel_id` and `mirror_webhook_enc` are nullable until an admin connects the server. This is safe for tenancy: dashboard access comes only from `ADMIN_GUILD`, which only the connect flow writes. Rejected: refusing commands from unconnected guilds, because it breaks `/status` in the test server before the dashboard exists, and the bot is already invited by then.
+- **What gets recorded.** Every actionable, guild-scoped interaction gets an `INTERACTION` row and an `ACTION` row. Only slow paths (`/report` defer, slow buttons) also get a `JOB` row, so `recordAndEnqueue` takes an optional job. `/status`, `disabled` and `unknown_command` are recorded with `status = 'answered'` and `mirror_status = 'skipped'`. They show in the live log (F-06) and have no job. PINGs, rejected requests, duplicates and DMs are not recorded (§8.3).
+- **Duplicates on the fast path.** A duplicate `/status` is not recorded again, but it still gets a normal reply, because a status read is safe to repeat.
+- **"Today"** in `/status` means the current UTC day. The worker heartbeat stays `null` until Step 3 decides where it is stored.
+- **Persistence stack.** `pg` with parameterised SQL. No ORM and no query builder: the load-bearing SQL (`ON CONFLICT … RETURNING`, `FOR UPDATE SKIP LOCKED`) is plain SQL, and an abstraction would hide exactly what a reviewer needs to see. Migrations are numbered plain `.sql` files applied in order by a small runner that records applied files in a `schema_migrations` table.
+- **DB timeouts on the request path.** The ledger write must finish inside the 3 s window. Use pool `connectionTimeoutMillis` of 1000 and a `statement_timeout` of 1500 ms on the request path. When the database is unavailable, reply with ephemeral `MESSAGES.notRecorded` within 3 s (resilience skill), never a 500 and never a fake success.
 
 **Indexes:** `JOB (status, next_run_at)` for the claim query; `INTERACTION (guild_id, created_at DESC)` for the log; `JOB_ATTEMPT (job_id, attempt_no)`; `SESSION (expires_at)` for cleanup; unique `COMMAND_RULE (guild_id, command_name)`.
 
