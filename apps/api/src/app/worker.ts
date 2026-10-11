@@ -18,6 +18,17 @@ export interface WorkerOptions {
   leaseMs: number;
 }
 
+/** While ticks keep failing (database down) the idle wait doubles from the poll interval up to this. */
+export const MAX_FAILURE_BACKOFF_MS = 30_000;
+/** A run of failures logs its first line, then one more per this many, so an outage cannot flood the log. */
+export const FAILURE_LOG_EVERY = 20;
+
+/** Idle wait after `consecutiveFailures` failed ticks in a row (1 = the first): poll, 2x, 4x, ... capped. */
+export function failureBackoffMs(pollIntervalMs: number, consecutiveFailures: number): number {
+  const cap = Math.max(MAX_FAILURE_BACKOFF_MS, pollIntervalMs);
+  return Math.min(cap, pollIntervalMs * 2 ** (consecutiveFailures - 1));
+}
+
 export interface WorkerDeps {
   jobs: JobRepository;
   runner: JobRunner;
@@ -36,6 +47,8 @@ export class Worker {
   private loop: Promise<void> | undefined;
   private wake: (() => void) | undefined;
   private nudged = false;
+  private consecutiveFailures = 0;
+  private heartbeatFailing = false;
 
   public constructor(
     private readonly deps: WorkerDeps,
@@ -102,9 +115,17 @@ export class Worker {
   private async beat(): Promise<void> {
     try {
       await this.deps.heartbeat.beat(this.deps.clock.nowMs());
+      if (this.heartbeatFailing) {
+        this.heartbeatFailing = false;
+        this.deps.logger.info({}, 'worker.heartbeat_recovered');
+      }
     } catch (error) {
-      // A missed beat must not stop the work; /status just shows an older value.
-      this.deps.logger.warn(errorLogFields(error), 'worker.heartbeat_failed');
+      // A missed beat must not stop the work; /status just shows an older value. Logged on the change of
+      // state only: while the database is down every tick would repeat it.
+      if (!this.heartbeatFailing) {
+        this.heartbeatFailing = true;
+        this.deps.logger.warn(errorLogFields(error), 'worker.heartbeat_failed');
+      }
     }
   }
 
@@ -116,19 +137,41 @@ export class Worker {
   private async runLoop(): Promise<void> {
     while (!this.isStopping()) {
       let claimed = 0;
+      let waitMs = this.options.pollIntervalMs;
       try {
         claimed = await this.tick();
+        this.noteTickSucceeded();
       } catch (error) {
-        this.deps.logger.error(errorLogFields(error), 'worker.tick_failed');
+        waitMs = this.noteTickFailed(error);
       }
       // Work found: look again at once. Nothing found (or the database is failing): wait for the poll or a nudge.
       if (!this.isStopping() && claimed === 0) {
-        await this.idle();
+        await this.idle(waitMs);
       }
     }
   }
 
-  private idle(): Promise<void> {
+  /** Counts the failure, logs the first of a run and every FAILURE_LOG_EVERY-th, and returns how long to wait. */
+  private noteTickFailed(error: unknown): number {
+    this.consecutiveFailures += 1;
+    const count = this.consecutiveFailures;
+    if (count === 1 || count % FAILURE_LOG_EVERY === 0) {
+      this.deps.logger.error(
+        { ...errorLogFields(error), consecutiveFailures: count },
+        'worker.tick_failed',
+      );
+    }
+    return failureBackoffMs(this.options.pollIntervalMs, count);
+  }
+
+  private noteTickSucceeded(): void {
+    if (this.consecutiveFailures > 0) {
+      this.deps.logger.info({ afterFailures: this.consecutiveFailures }, 'worker.recovered');
+      this.consecutiveFailures = 0;
+    }
+  }
+
+  private idle(waitMs: number): Promise<void> {
     if (this.nudged) {
       this.nudged = false;
       return Promise.resolve();
@@ -137,7 +180,7 @@ export class Worker {
       const timer = setTimeout(() => {
         this.wake = undefined;
         resolve();
-      }, this.options.pollIntervalMs);
+      }, waitMs);
       this.wake = () => {
         clearTimeout(timer);
         this.wake = undefined;

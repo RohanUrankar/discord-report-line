@@ -1,10 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { LogSink } from '../../test/helpers/logging.js';
 import { createLogger } from '../http/middleware.js';
 import type { ClaimedJob, ClaimRequest, JobRepository } from '../ports/jobs.js';
 import type { Logger } from '../ports/logger.js';
-import { Worker, type JobRunner } from './worker.js';
+import {
+  failureBackoffMs,
+  FAILURE_LOG_EVERY,
+  MAX_FAILURE_BACKOFF_MS,
+  Worker,
+  type JobRunner,
+} from './worker.js';
 
 const NOW_MS = 1_800_000_000_000;
 const OPTIONS = { batch: 3, pollIntervalMs: 10, leaseMs: 60_000 };
@@ -255,6 +261,98 @@ describe('Worker loop', () => {
     await worker.stop();
 
     expect(sink.messages()).toContain('worker.tick_failed');
+  });
+
+  describe('while the database is down', () => {
+    function downThenUp(sink: LogSink, beatFails = true) {
+      const state = { down: true, claims: 0 };
+      const worker = new Worker(
+        {
+          jobs: {
+            claim: () => {
+              state.claims += 1;
+              return state.down ? Promise.reject(new Error('db down')) : Promise.resolve([]);
+            },
+            commitStep: () => Promise.resolve('applied'),
+          },
+          runner: { run: () => Promise.resolve() },
+          heartbeat: {
+            beat: () =>
+              beatFails && state.down ? Promise.reject(new Error('db down')) : Promise.resolve(),
+          },
+          clock: { nowMs: () => NOW_MS },
+          logger: createLogger('debug', sink),
+        },
+        { ...OPTIONS, pollIntervalMs: 100 },
+      );
+      return { state, worker };
+    }
+
+    it('SHALL double the wait after each failed tick up to the cap', () => {
+      const waits = [1, 2, 3, 4, 10, 100].map((n) => failureBackoffMs(100, n));
+
+      expect(waits).toEqual([100, 200, 400, 800, MAX_FAILURE_BACKOFF_MS, MAX_FAILURE_BACKOFF_MS]);
+      expect(failureBackoffMs(60_000, 3)).toBe(60_000); // never below the poll interval
+    });
+
+    it('SHALL poll less and less often instead of every interval', async () => {
+      vi.useFakeTimers();
+      try {
+        const { worker, state } = downThenUp(new LogSink());
+
+        worker.start();
+        await vi.advanceTimersByTimeAsync(1_500); // fixed 100 ms polling would be about 15 claims
+        const claimsInOutage = state.claims;
+        await worker.stop();
+
+        expect(claimsInOutage).toBeGreaterThanOrEqual(4);
+        expect(claimsInOutage).toBeLessThanOrEqual(6); // at t = 0, 100, 300, 700, 1500
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('SHALL log the first failure and then one per FAILURE_LOG_EVERY, and the heartbeat once', async () => {
+      vi.useFakeTimers();
+      try {
+        const sink = new LogSink();
+        const { worker, state } = downThenUp(sink);
+
+        worker.start();
+        await vi.advanceTimersByTimeAsync(MAX_FAILURE_BACKOFF_MS * FAILURE_LOG_EVERY);
+        await worker.stop();
+
+        const tickLogs = sink.records().filter((record) => record.msg === 'worker.tick_failed');
+        expect(state.claims).toBeGreaterThan(FAILURE_LOG_EVERY);
+        expect(tickLogs[0]).toMatchObject({ consecutiveFailures: 1 });
+        expect(tickLogs[1]).toMatchObject({ consecutiveFailures: FAILURE_LOG_EVERY });
+        expect(sink.messages().filter((m) => m === 'worker.heartbeat_failed')).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('WHEN the database comes back THE SYSTEM SHALL log one recovery and poll at the normal interval again', async () => {
+      vi.useFakeTimers();
+      try {
+        const sink = new LogSink();
+        const { worker, state } = downThenUp(sink);
+
+        worker.start();
+        await vi.advanceTimersByTimeAsync(700);
+        state.down = false;
+        await vi.advanceTimersByTimeAsync(800); // the wait that was already running ends, the tick succeeds
+        const claimsAtRecovery = state.claims;
+        await vi.advanceTimersByTimeAsync(1_000);
+        await worker.stop();
+
+        expect(sink.messages().filter((m) => m === 'worker.recovered')).toHaveLength(1);
+        expect(sink.messages()).toContain('worker.heartbeat_recovered');
+        expect(state.claims - claimsAtRecovery).toBeGreaterThanOrEqual(9); // 100 ms polling again
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it('SHALL ignore a second start()', async () => {

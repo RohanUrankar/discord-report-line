@@ -255,3 +255,19 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** `makeJobsDue()` in `test/helpers/pgApp.ts` pins `next_run_at` to the test clock before `drain()` in the three tests that enqueue through the HTTP path.
 - **Cost:** a failing suite reported but not investigated by the first agent that saw it; about ten minutes once looked at.
 - **Lesson → guardrail:** a test that mixes a fixed clock with DB-side `now()` is a time bomb. Pin the DB-side time too. I also ran `git stash` to compare against an old commit and it stashed the user's unrelated pending deletion; restored with `stash pop`, and I will not stash in a dirty tree again.
+
+### 2026-10-12 — backend: log cursor timestamp validated by regex only, calendar-invalid value gives 500
+- **Believed / generated:** `CursorBody` in `apps/api/src/domain/logCursor.ts` treats `t` as valid if it matches `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/`, so any bad cursor becomes a 400 `invalid_cursor`.
+- **Noticed by:** quality-verifier: `GET .../interactions?cursor=<b64 {"t":"2026-13-45T25:61:61.000000Z",...}>` returned 500; log shows pg error 22008 "date/time field value out of range".
+- **Root cause:** the shape was validated, the value was not; Postgres performs the real date check at `$4::timestamptz`.
+- **Fix:** not applied (verifier is read-only). Suggested: parse the date for real or map 22007/22008 to `invalid_cursor`.
+- **Cost:** any logged-in admin can trigger 500s and error-log lines; no tenant leak (query stays guild-scoped).
+- **Lesson → guardrail:** add a test for calendar-invalid cursor timestamps (month 13, Feb 30, year 0000).
+
+### 2026-10-12 — backend: first fixes for the step 4 verifier findings were incomplete until a test run proved them
+- **Believed / generated:** for the cursor, that a `Date` parse is enough to reject bad timestamps; for `/api/%2e%2e/...`, that the existing `SERVER_PATHS` check in the SPA fallback already kept `/api` paths away from the static files.
+- **Noticed by:** reasoning before running: `new Date('2026-02-30T...')` rolls over to March instead of failing, and `new Date('0000-01-01...')` is valid in JS but not in Postgres (no year 0), so a bare parse would have let two of the three crafted values through. For the static path, the guard only sat on the fallback; `express.static` ran first and decodes the path itself. Confirmed by temporarily disabling the new guard: the four new dot-segment tests failed.
+- **Root cause:** treating "JS can parse it" as "Postgres can cast it"; and assuming a check on one middleware covered the one mounted before it.
+- **Fix:** decoder requires the ms-truncated string to round-trip through `toISOString()` and year >= 1; the reader also maps 22007/22008 to `InvalidCursorError`; the server-path guard now also wraps `express.static`.
+- **Cost:** none shipped; both were caught before commit.
+- **Lesson → guardrail:** the cursor, cookie and dot-segment cases are now tests; the guard-disabled check is the way to prove a regression test bites.
