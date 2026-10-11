@@ -187,3 +187,11 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** `errors: z.unknown().optional()`; the broken test line was repaired by hand. Test files go through Write/Edit only.
 - **Cost:** a few minutes.
 - **Lesson → guardrail:** the "wrong type" and "empty input" cases in `parseDiscordErrorBody` tests would have caught (a) even without the main path.
+
+### 2026-10-12 — step 4 item 5: a "check the dist folder" helper written with `existsSync`, and a `git checkout` that discarded my own README edit
+- **Believed / generated:** (a) a synchronous `existsSync` inside `mountDashboard` is fine because it runs once at startup; (b) `git checkout README.md` would only undo the prettier rewrite.
+- **Noticed by:** (a) `n/no-sync` and `security/detect-non-literal-fs-filename` in lint; (b) the `WEB_DIST_DIR` README lines were gone on the next grep.
+- **Root cause:** (a) I wrote the I/O into the wiring function instead of a startup step; the repo's lint forbids sync fs by design. (b) The file had uncommitted work of mine in it, so checkout reverted all of it, not just the formatting.
+- **Fix:** (a) `findDashboardDir` is async and called from `index.ts` before `createServer`; `mountDashboard` just mounts a directory already accepted. (b) Re-applied the README edit, this time with a short table row so prettier does not rewrap the whole table.
+- **Cost:** minutes.
+- **Lesson → guardrail:** the missing-dist and index-less-directory tests drive `findDashboardDir`; check `git diff` before any `git checkout <file>`.

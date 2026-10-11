@@ -13,6 +13,7 @@ import {
   loadWorkerMode,
   type ServerConfig,
 } from './config.js';
+import { findDashboardDir } from './http/dashboardSite.js';
 import { createLogger } from './http/middleware.js';
 import { createServer } from './http/server.js';
 import type { Logger } from './ports/logger.js';
@@ -60,7 +61,7 @@ function closeServer(server: Server): Promise<void> {
 }
 
 /** HTTP server and the in-process worker (ADR-0002). */
-function startServerWithWorker(config: ServerConfig): void {
+async function startServerWithWorker(config: ServerConfig): Promise<void> {
   const logger = createLogger(config.LOG_LEVEL);
   // The pool connects lazily, so startup does not wait on the database and a cold start stays fast.
   const requestPool = createRequestPool(
@@ -91,6 +92,7 @@ function startServerWithWorker(config: ServerConfig): void {
   if (!config.SESSION_COOKIE_SECURE) {
     logger.warn({}, 'config.session_cookie_not_secure'); // acceptable on http://localhost only
   }
+  const webDistDir = await findDashboardDir(config.WEB_DIST_DIR, logger);
   const server = createServer({
     controller,
     logger,
@@ -99,6 +101,7 @@ function startServerWithWorker(config: ServerConfig): void {
     guildConfig: composeGuildConfig(config, requestPool),
     cookie,
     trustProxyHops: config.TRUST_PROXY_HOPS,
+    ...(webDistDir === undefined ? {} : { webDistDir }),
   }).listen(config.PORT, () => {
     logger.info({ port: config.PORT }, 'server.listening');
   });
@@ -131,7 +134,11 @@ try {
   if (loadWorkerMode() === 'standalone') {
     startStandaloneWorker();
   } else {
-    startServerWithWorker(loadServerConfig());
+    startServerWithWorker(loadServerConfig()).catch((error: unknown) => {
+      process.stderr.write(`Startup failed: ${error instanceof Error ? error.name : 'unknown error'}
+`);
+      process.exit(1);
+    });
   }
 } catch (error) {
   if (error instanceof ConfigError) {

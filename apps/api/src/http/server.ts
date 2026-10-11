@@ -7,6 +7,7 @@ import type { InteractionHandler } from '../app/interactions.js';
 import type { Logger } from '../ports/logger.js';
 import { authRouter } from './authRoutes.js';
 import { dashboardRouter, type DashboardHttpDeps } from './dashboardRoutes.js';
+import { mountDashboard, securityHeaders } from './dashboardSite.js';
 import type { SessionCookieSettings } from './sessionCookie.js';
 import {
   contextOf,
@@ -38,6 +39,8 @@ export interface ServerDeps {
   cookie: SessionCookieSettings;
   /** Reverse proxies in front of the app (0 = none), so `req.ip`, which the login throttle keys on, is real. */
   trustProxyHops?: number;
+  /** A directory `findDashboardDir` accepted: the Angular build to serve from this same origin. Undefined: API only. */
+  webDistDir?: string;
 }
 
 /** Dashboard request bodies are small forms; anything bigger is refused with 413. */
@@ -48,7 +51,8 @@ const MAX_API_BODY_BYTES = 16 * 1024;
  * This is the composition point for the request path (DESIGN §8.2).
  *
  * Body-parser rule (CLAUDE.md): the raw parser is mounted on `/interactions` only. The JSON parser is mounted
- * on `/api` only, never globally, so it can never touch the signed bytes. No CORS: the SPA is same-origin.
+ * on `/api` only, never globally, so it can never touch the signed bytes. The SPA build is served from this same origin
+ * (after every API route, so it can never shadow one), hence no CORS.
  */
 export function createServer({
   controller,
@@ -58,6 +62,7 @@ export function createServer({
   guildConfig,
   cookie,
   trustProxyHops = 0,
+  webDistDir,
 }: ServerDeps): Express {
   const app = express();
   app.disable('x-powered-by');
@@ -65,6 +70,7 @@ export function createServer({
     app.set('trust proxy', trustProxyHops);
   }
   app.use(requestContext(logger));
+  app.use(securityHeaders);
 
   app.get('/healthz', (_req, res) => {
     res.json({ status: 'ok' });
@@ -94,6 +100,10 @@ export function createServer({
     express.json({ limit: MAX_API_BODY_BYTES }),
     apiRouter({ auth, cookie, logger, dashboard, guildConfig }),
   );
+
+  if (webDistDir !== undefined) {
+    mountDashboard(app, webDistDir);
+  }
 
   app.use(notFoundHandler);
   app.use(errorHandler(logger));

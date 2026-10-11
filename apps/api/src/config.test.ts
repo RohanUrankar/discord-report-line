@@ -1,7 +1,10 @@
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
   ConfigError,
+  DEFAULT_WEB_DIST_DIR,
   loadMigrateConfig,
   loadRegisterConfig,
   loadSeedAdminConfig,
@@ -42,6 +45,7 @@ describe('loadServerConfig', () => {
       SESSION_TTL_MS: 28_800_000,
       SESSION_COOKIE_SECURE: true,
       TRUST_PROXY_HOPS: 0,
+      WEB_DIST_DIR: DEFAULT_WEB_DIST_DIR,
       DISCORD_APP_ID: '123456789012345678',
       DISCORD_BOT_TOKEN: 'placeholder-bot-token',
       WEBHOOK_ENC_KEY: ENC_KEY,
@@ -130,6 +134,23 @@ describe('loadServerConfig', () => {
   it('rejects a public key of the wrong length', () => {
     expect(() => loadServerConfig({ ...REQUIRED, DISCORD_PUBLIC_KEY: 'ab'.repeat(31) })).toThrow(
       /DISCORD_PUBLIC_KEY/,
+    );
+  });
+});
+
+describe('WEB_DIST_DIR', () => {
+  it('WHEN unset or empty THE SYSTEM SHALL default to the Angular build output of apps/web', () => {
+    expect(path.posix.normalize(DEFAULT_WEB_DIST_DIR.split(path.sep).join('/'))).toMatch(
+      /apps\/web\/dist\/web\/browser$/,
+    );
+    expect(loadServerConfig({ ...REQUIRED, WEB_DIST_DIR: '' }).WEB_DIST_DIR).toBe(
+      DEFAULT_WEB_DIST_DIR,
+    );
+  });
+
+  it('WHEN set THE SYSTEM SHALL use it', () => {
+    expect(loadServerConfig({ ...REQUIRED, WEB_DIST_DIR: '/srv/web' }).WEB_DIST_DIR).toBe(
+      '/srv/web',
     );
   });
 });

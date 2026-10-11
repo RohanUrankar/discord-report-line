@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import { z } from 'zod';
 
 import { REPLAY_WINDOW_MS } from './domain/signature.js';
@@ -10,6 +12,10 @@ const WORKER_MODES = ['inline', 'standalone'] as const;
 const DEFAULT_PORT = 3000;
 const DEFAULT_STATUS_TIMEOUT_MS = 1500; // well inside Discord's 3 s window (CLAUDE.md)
 const DEFAULT_DISCORD_TIMEOUT_MS = 5000;
+/** Where `ng build` puts the dashboard (apps/web, project "web"), found from this file so the working directory does not matter. */
+export const DEFAULT_WEB_DIST_DIR = fileURLToPath(
+  new URL('../../web/dist/web/browser', import.meta.url),
+);
 const DEFAULT_DISCORD_API_BASE_URL = 'https://discord.com/api/v10';
 
 /** An empty value (`FOO=` in a .env file) counts as unset, so defaults and "required" behave. */
@@ -144,6 +150,7 @@ const ServerEnv = z
     SESSION_SECRET: z.preprocess(unlessEmpty, z.string().min(MIN_SESSION_SECRET_LENGTH)),
     SESSION_TTL_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_SESSION_TTL_MS)),
     SESSION_COOKIE_SECURE: cookieSecure,
+    WEB_DIST_DIR: z.preprocess(unlessEmpty, z.string().min(1).default(DEFAULT_WEB_DIST_DIR)),
     TRUST_PROXY_HOPS: z.preprocess(
       unlessEmpty,
       z.coerce.number().int().min(0).max(MAX_TRUST_PROXY_HOPS).default(0),
