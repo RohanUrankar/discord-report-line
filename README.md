@@ -25,7 +25,7 @@ Requires Node 22.12 or newer.
 ```bash
 npm install
 cp .env.example <your local env file>   # then fill in the values (see below). Never commit it.
-docker compose up -d db                  # local Postgres, see "Database" below
+# start a local Postgres (see "Database" below: standalone or Docker Compose)
 npm run db:migrate
 npm run dev
 ```
@@ -34,41 +34,62 @@ The server listens on `PORT` (default 3000). `npm test`, `npm run typecheck` and
 
 ### Database
 
-Postgres 16 is the only datastore. For local work use Docker Compose (Docker Desktop must be running), or any Postgres you own.
+PostgreSQL is the only datastore (the design targets 16 or newer; 18 works). Pick one way to get a local instance, then the same three steps apply.
 
-1. In your local env file set `POSTGRES_PASSWORD` to a password you choose, and make the two URLs use it:
-   `DATABASE_URL=postgresql://report_line:<password>@localhost:5432/report_line` and
-   `DATABASE_URL_TEST=postgresql://report_line:<password>@localhost:5432/report_line_test`.
-2. `docker compose up -d db` starts it (the first start also creates the `report_line_test` database the tests wipe).
-3. `npm run db:migrate` applies `apps/api/migrations/*.sql` in order and records them in `schema_migrations`. It is safe to run twice, and the server never migrates on its own.
-4. `npm test` needs `DATABASE_URL_TEST`; without it the database tests fail loudly instead of skipping. It must differ from `DATABASE_URL`, because the tests empty it.
+**Option A: a standalone instance (no Docker), Windows.** Install the PostgreSQL binaries (the EDB zip archive or installer; only `initdb`, `pg_ctl` and `createdb` are used) and run this in PowerShell, with `$PG` pointing at the `bin` folder:
 
-For a hosted database (for example Neon) use its pooled connection string with `?sslmode=require` and a separate branch or database for `DATABASE_URL_TEST`.
+```powershell
+$PG = "C:path	opgsqlin"
+$DATA = "$HOME
+eport-line-pgdata"                         # any empty folder outside the repo
+Set-Content -NoNewline -Path "$HOMEpgpass.tmp" -Value "<password you choose>"
+& "$PGinitdb.exe" -D $DATA -U report_line -A scram-sha-256 --pwfile="$HOMEpgpass.tmp" -E UTF8
+Remove-Item "$HOMEpgpass.tmp"
+& "$PGpg_ctl.exe" -D $DATA -o "-p 5433 -c listen_addresses=127.0.0.1" -l "$HOME
+eport-line-pg.log" start
+$env:PGPASSWORD = "<password you choose>"
+& "$PGcreatedb.exe" -h 127.0.0.1 -p 5433 -U report_line report_line
+& "$PGcreatedb.exe" -h 127.0.0.1 -p 5433 -U report_line report_line_test
+```
+
+Port 5433 is only an example of a spare port; use any free one. Stop it with `pg_ctl.exe -D $DATA stop`; start it again with the `pg_ctl ... start` line. Then set, in your local env file:
+`DATABASE_URL=postgresql://report_line:<password>@127.0.0.1:5433/report_line` and
+`DATABASE_URL_TEST=postgresql://report_line:<password>@127.0.0.1:5433/report_line_test`.
+
+**Option B: Docker Compose** (Docker Desktop must be running). Set `POSTGRES_PASSWORD` in your local env file, use the same password in the URLs above (host `localhost`, port `5432`, or whatever `POSTGRES_PORT` you set), then `docker compose up -d db`. The first start also creates the `report_line_test` database.
+
+**Option C: hosted** (for example Neon): use its pooled connection string with `?sslmode=require`, and a separate branch or database for `DATABASE_URL_TEST`.
+
+Then:
+
+1. `npm run db:migrate` applies `apps/api/migrations/*.sql` in order and records them in `schema_migrations`. It is safe to run twice, and the server never migrates on its own.
+2. `npm test` needs `DATABASE_URL_TEST`; without it the database tests fail loudly instead of skipping. It must differ from `DATABASE_URL`, because the tests empty it.
+3. Never paste either URL into logs, issues or commits: they contain the password.
 
 ### Environment variables
 
 Every variable is validated at startup; a bad or missing one stops the process and names the variable (never its value). Only `.env.example` is committed.
 
-| Variable                            | Used by         | Required   | Default                       | Notes                                                                   |
-| ----------------------------------- | --------------- | ---------- | ----------------------------- | ----------------------------------------------------------------------- |
-| `DISCORD_PUBLIC_KEY`                | server          | yes        |                               | Developer Portal, General Information, Public Key (64 hex characters)   |
-| `PORT`                              | server          | no         | `3000`                        |                                                                         |
-| `LOG_LEVEL`                         | server          | no         | `info`                        | `fatal` `error` `warn` `info` `debug` `trace` `silent`                  |
-| `REPLAY_WINDOW_MS`                  | server          | no         | `300000`                      | Oldest `X-Signature-Timestamp` accepted                                 |
-| `STATUS_TIMEOUT_MS`                 | server          | no         | `1500`                        | How long `/status` waits for its counts before replying "try again"     |
-| `DATABASE_URL`                      | server, migrate | yes        |                               | `postgresql://...`. A real secret: environment only, never logged       |
-| `DATABASE_URL_TEST`                 | tests           | for tests  |                               | A separate throwaway database the tests may wipe; must differ           |
-| `POSTGRES_PASSWORD`                 | docker compose  | for Docker |                               | Password of the local container's `report_line` user                    |
-| `RECORD_TIMEOUT_MS`                 | server          | no         | `1200`                        | Recording + status read must together fit the 3 s window (sum max 2800) |
-| `DB_POOL_MAX`                       | server          | no         | `5`                           | Free-tier Postgres allows few connections                               |
-| `DB_CONNECTION_TIMEOUT_MS`          | server          | no         | `1000`                        | Waiting for a connection                                                |
-| `DB_STATEMENT_TIMEOUT_MS`           | server          | no         | `1500`                        | Enforced by Postgres per statement                                      |
-| `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` | server          | no         | `5000`                        | Postgres kills a session that opens a transaction and goes quiet        |
-| `DISCORD_APP_ID`                    | register script | yes        |                               | Developer Portal, General Information, Application ID                   |
-| `DISCORD_GUILD_ID`                  | register script | yes        |                               | Your test server's ID                                                   |
-| `DISCORD_BOT_TOKEN`                 | register script | yes        |                               | A real secret. Environment only; never logged or committed              |
-| `DISCORD_API_BASE_URL`              | register script | no         | `https://discord.com/api/v10` | Point at a stub in tests                                                |
-| `DISCORD_TIMEOUT_MS`                | register script | no         | `5000`                        |                                                                         |
+| Variable                            | Used by         | Required    | Default                       | Notes                                                                   |
+| ----------------------------------- | --------------- | ----------- | ----------------------------- | ----------------------------------------------------------------------- |
+| `DISCORD_PUBLIC_KEY`                | server          | yes         |                               | Developer Portal, General Information, Public Key (64 hex characters)   |
+| `PORT`                              | server          | no          | `3000`                        |                                                                         |
+| `LOG_LEVEL`                         | server          | no          | `info`                        | `fatal` `error` `warn` `info` `debug` `trace` `silent`                  |
+| `REPLAY_WINDOW_MS`                  | server          | no          | `300000`                      | Oldest `X-Signature-Timestamp` accepted                                 |
+| `STATUS_TIMEOUT_MS`                 | server          | no          | `1500`                        | How long `/status` waits for its counts before replying "try again"     |
+| `DATABASE_URL`                      | server, migrate | yes         |                               | `postgresql://...`. A real secret: environment only, never logged       |
+| `DATABASE_URL_TEST`                 | tests           | for tests   |                               | A separate throwaway database the tests may wipe; must differ           |
+| `POSTGRES_PASSWORD`                 | docker compose  | Docker only |                               | Password of the Compose container's `report_line` user                  |
+| `RECORD_TIMEOUT_MS`                 | server          | no          | `1200`                        | Recording + status read must together fit the 3 s window (sum max 2800) |
+| `DB_POOL_MAX`                       | server          | no          | `5`                           | Free-tier Postgres allows few connections                               |
+| `DB_CONNECTION_TIMEOUT_MS`          | server          | no          | `1000`                        | Waiting for a connection                                                |
+| `DB_STATEMENT_TIMEOUT_MS`           | server          | no          | `1500`                        | Enforced by Postgres per statement                                      |
+| `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` | server          | no          | `5000`                        | Postgres kills a session that opens a transaction and goes quiet        |
+| `DISCORD_APP_ID`                    | register script | yes         |                               | Developer Portal, General Information, Application ID                   |
+| `DISCORD_GUILD_ID`                  | register script | yes         |                               | Your test server's ID                                                   |
+| `DISCORD_BOT_TOKEN`                 | register script | yes         |                               | A real secret. Environment only; never logged or committed              |
+| `DISCORD_API_BASE_URL`              | register script | no          | `https://discord.com/api/v10` | Point at a stub in tests                                                |
+| `DISCORD_TIMEOUT_MS`                | register script | no          | `5000`                        |                                                                         |
 
 ## Connect it to Discord
 

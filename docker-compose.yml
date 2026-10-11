@@ -10,7 +10,7 @@ services:
       POSTGRES_DB: report_line
     ports:
       # Loopback only: the database must not be reachable from the network.
-      - '127.0.0.1:5432:5432'
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - report_line_pgdata:/var/lib/postgresql/data
       # Runs once, on first start of an empty volume: creates the throwaway database the tests wipe.

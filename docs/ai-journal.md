@@ -91,3 +91,11 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** disabled that one rule in `eslint.config.js` with the reason; the rest of the security rules stay on (non-literal fs paths and regexps, child_process, eval, unsafe regex).
 - **Cost:** none.
 - **Lesson → guardrail:** the rule's intent (no user-controlled keys into maps) is covered by the existing guidance to use `Map` and zod `.strict()`.
+
+### 2026-10-12 — environment: I made Docker Compose the only documented database, and Docker cannot run here
+- **Believed / generated:** my Step 2 README and `docker-compose.yml` presented Compose as the way to get Postgres, assuming Docker Desktop was usable ("Docker exists at the path, the daemon is just stopped").
+- **Noticed by:** the human reported Docker cannot run on this machine and set up a standalone PostgreSQL 18 on port 5433 instead; their quick edit of the compose port mapping to `5433:5433` would also have broken the container (it listens on 5432 inside).
+- **Root cause:** I treated "docker.exe is on PATH" as "Docker works" and never asked.
+- **Fix:** README documents standalone `initdb`/`pg_ctl` (Windows) as Option A, Compose as Option B, hosted as C; compose maps `${POSTGRES_PORT:-5432}:5432`.
+- **Cost:** none in code; the first run of the suite on real Postgres passed (294 API + 25 shared tests), including the concurrency tests PGlite could not exercise.
+- **Lesson → guardrail:** ask what the host can run before writing setup instructions around it.
