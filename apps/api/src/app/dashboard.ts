@@ -6,7 +6,7 @@ import type {
 } from '@report-line/shared';
 
 import { decodeLogCursor, encodeLogCursor } from '../domain/logCursor.js';
-import type { DashboardReader } from '../ports/dashboard.js';
+import { InvalidCursorError, type DashboardReader, type LogRecord } from '../ports/dashboard.js';
 import { toDetail, toGuildSummary, toLogItem } from './dashboardView.js';
 
 export type ListResult = { kind: 'ok'; page: InteractionLogPage } | { kind: 'invalid_cursor' };
@@ -37,11 +37,19 @@ export class DashboardService {
       return { kind: 'invalid_cursor' };
     }
     // One extra row tells whether another page exists without a count query.
-    const rows = await this.reader.listInteractions(adminId, guildId, {
-      limit: query.limit + 1,
-      ...(after === undefined ? {} : { after }),
-      ...(query.status === undefined ? {} : { jobStatus: query.status }),
-    });
+    let rows: LogRecord[];
+    try {
+      rows = await this.reader.listInteractions(adminId, guildId, {
+        limit: query.limit + 1,
+        ...(after === undefined ? {} : { after }),
+        ...(query.status === undefined ? {} : { jobStatus: query.status }),
+      });
+    } catch (error) {
+      if (error instanceof InvalidCursorError) {
+        return { kind: 'invalid_cursor' };
+      }
+      throw error;
+    }
     const pageRows = rows.slice(0, query.limit);
     const last = pageRows.at(-1);
     const nextCursor =

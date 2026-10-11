@@ -9,12 +9,13 @@ import {
 import type pg from 'pg';
 import { z } from 'zod';
 
-import type {
-  AttemptRecord,
-  DashboardReader,
-  GuildRecord,
-  LogQuery,
-  LogRecord,
+import {
+  InvalidCursorError,
+  type AttemptRecord,
+  type DashboardReader,
+  type GuildRecord,
+  type LogQuery,
+  type LogRecord,
 } from '../../ports/dashboard.js';
 
 // Tenancy (CLAUDE.md): every guild query below joins admin_guild on the signed-in admin AND filters on
@@ -138,6 +139,16 @@ function toAttemptRecord(raw: unknown): AttemptRecord {
   };
 }
 
+/** 22007 invalid_datetime_format, 22008 datetime_field_overflow. */
+function isBadTimestamp(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error.code === '22007' || error.code === '22008')
+  );
+}
+
 export class PgDashboardReader implements DashboardReader {
   public constructor(private readonly pool: pg.Pool) {}
 
@@ -156,15 +167,24 @@ export class PgDashboardReader implements DashboardReader {
     guildId: string,
     query: LogQuery,
   ): Promise<LogRecord[]> {
-    const result = await this.pool.query(LIST_INTERACTIONS, [
-      adminId,
-      guildId,
-      query.jobStatus ?? null,
-      query.after?.at ?? null,
-      query.after?.id ?? null,
-      query.limit,
-    ]);
-    return result.rows.map(toLogRecord);
+    try {
+      const result = await this.pool.query(LIST_INTERACTIONS, [
+        adminId,
+        guildId,
+        query.jobStatus ?? null,
+        query.after?.at ?? null,
+        query.after?.id ?? null,
+        query.limit,
+      ]);
+      return result.rows.map(toLogRecord);
+    } catch (error) {
+      // Defence in depth: the decoder already checks the calendar, but the store has the last word on what a
+      // timestamp is. The cursor is the only user text in this query.
+      if (query.after !== undefined && isBadTimestamp(error)) {
+        throw new InvalidCursorError();
+      }
+      throw error;
+    }
   }
 
   public async findInteraction(

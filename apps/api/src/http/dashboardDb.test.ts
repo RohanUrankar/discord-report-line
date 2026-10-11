@@ -335,6 +335,24 @@ describe('dashboard read API: the live log', () => {
     },
   );
 
+  it.each([
+    ['month 13 and hour 25', '2026-13-45T25:61:61.000000Z'],
+    ['year 0000', '0000-01-01T00:00:00.000000Z'],
+    ['Feb 30', '2026-02-30T00:00:00.000000Z'],
+  ])(
+    'WHEN the cursor timestamp is calendar-invalid (%s) THE SYSTEM SHALL answer 400 VALIDATION_FAILED, not 500',
+    async (_name, at) => {
+      const cursor = Buffer.from(JSON.stringify({ t: at, i: '900000000000000701' })).toString(
+        'base64url',
+      );
+
+      const res = await kit.get(adminA, `/api/guilds/${GUILD_A}/interactions?cursor=${cursor}`);
+
+      expect(res.status).toBe(400);
+      expect((res.body as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');
+    },
+  );
+
   it("WHEN a cursor from one server is used on another THE SYSTEM SHALL only ever return the second server's rows", async () => {
     await insertRow(db(), { id: '900000000000000701', guildId: GUILD_A });
     await insertRow(db(), { id: '900000000000000702', guildId: GUILD_A });

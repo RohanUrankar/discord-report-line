@@ -13,7 +13,25 @@ export interface LogCursor {
 
 const MICROSECOND_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
-const CursorBody = z.object({ t: z.string().regex(MICROSECOND_UTC), i: Snowflake }).strict();
+/**
+ * True for a real calendar instant Postgres also accepts. The regex only checks the shape, so month 13 or Feb 30
+ * would reach the `::timestamptz` cast and fail there. The check parses the milliseconds part with Date and
+ * requires it to print back unchanged (Date rolls Feb 30 over to March instead of rejecting it); the
+ * microseconds are not touched. Postgres has no year 0, which Date accepts.
+ */
+function isRealInstant(text: string): boolean {
+  const milliseconds = `${text.slice(0, -4)}Z`; // "...:00.123456Z" -> "...:00.123Z"
+  const parsed = new Date(milliseconds);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString() === milliseconds &&
+    parsed.getUTCFullYear() >= 1
+  );
+}
+
+const CursorBody = z
+  .object({ t: z.string().regex(MICROSECOND_UTC).refine(isRealInstant), i: Snowflake })
+  .strict();
 
 /** Opaque to clients (base64url of a small JSON object). It only narrows a query that is already tenant-scoped. */
 export function encodeLogCursor(cursor: LogCursor): string {

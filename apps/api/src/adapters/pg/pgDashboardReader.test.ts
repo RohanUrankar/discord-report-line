@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { truncateAll, useTestDatabase } from '../../../test/helpers/db.js';
+import { InvalidCursorError } from '../../ports/dashboard.js';
 import { PgDashboardReader } from './pgDashboardReader.js';
 
 const db = useTestDatabase();
@@ -45,6 +46,23 @@ beforeEach(async () => {
   adminB = await addAdmin('b@example.test', GUILD_B);
   await addCommand(ROW_A, GUILD_A);
   await addCommand(ROW_B, GUILD_B);
+});
+
+describe('PgDashboardReader: a cursor the database refuses', () => {
+  it.each([
+    '2026-13-45T25:61:61.000000Z',
+    '0000-01-01T00:00:00.000000Z',
+    '2026-02-30T00:00:00.000000Z',
+  ])(
+    'WHEN the cursor timestamp %s reaches the cast THE SYSTEM SHALL reject with InvalidCursorError, not a raw pg error',
+    async (at) => {
+      const reader = new PgDashboardReader(db());
+
+      await expect(
+        reader.listInteractions(adminA, GUILD_A, { limit: 10, after: { at, id: ROW_A } }),
+      ).rejects.toBeInstanceOf(InvalidCursorError);
+    },
+  );
 });
 
 // The TenantGuard middleware is the first lock. These prove the SQL is a second one: a route that forgot

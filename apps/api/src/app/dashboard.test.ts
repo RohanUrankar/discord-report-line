@@ -2,7 +2,12 @@ import { LOG_PAGE_SIZE_DEFAULT, type ListInteractionsQuery } from '@report-line/
 import { describe, expect, it } from 'vitest';
 
 import { decodeLogCursor, encodeLogCursor } from '../domain/logCursor.js';
-import type { DashboardReader, LogQuery, LogRecord } from '../ports/dashboard.js';
+import {
+  InvalidCursorError,
+  type DashboardReader,
+  type LogQuery,
+  type LogRecord,
+} from '../ports/dashboard.js';
 import { DashboardService } from './dashboard.js';
 
 const ADMIN = 'a0000000-0000-4000-8000-000000000001';
@@ -104,6 +109,22 @@ describe('DashboardService.listInteractions', () => {
 
     expect(result).toEqual({ kind: 'invalid_cursor' });
     expect(reader.seen).toHaveLength(0);
+  });
+
+  it('WHEN the store refuses the cursor THE SYSTEM SHALL answer invalid_cursor', async () => {
+    const reader: DashboardReader = {
+      ...readerOf([]),
+      listInteractions: () => Promise.reject(new InvalidCursorError()),
+    };
+    const cursor = encodeLogCursor({ at: record(4).createdAtExact, id: record(4).id });
+
+    const result = await new DashboardService(reader).listInteractions(
+      ADMIN,
+      GUILD,
+      query({ cursor }),
+    );
+
+    expect(result).toEqual({ kind: 'invalid_cursor' });
   });
 
   it('WHEN the reader fails THE SYSTEM SHALL let the failure propagate', async () => {
