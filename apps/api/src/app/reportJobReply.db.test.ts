@@ -9,7 +9,7 @@ import {
   USER_ID,
   reportPayload,
 } from '../../test/helpers/payloads.js';
-import { NOW_MS, wire } from '../../test/helpers/pgApp.js';
+import { NOW_MS, makeJobsDue, wire } from '../../test/helpers/pgApp.js';
 import {
   APP_ID,
   BOT_TOKEN,
@@ -55,6 +55,7 @@ describe('report job: filling the deferred reply', () => {
     expect(elapsedMs).toBeLessThan(3000);
     expect(h.discord.requests).toEqual([]);
 
+    await makeJobsDue(db());
     await h.drain();
 
     const [patch] = patches();
@@ -86,6 +87,7 @@ describe('report job: filling the deferred reply', () => {
     const responses = await Promise.all(
       Array.from({ length: 10 }, () => send(reportPayload(REPORT_TEXT))),
     );
+    await makeJobsDue(db());
     await h.drain();
 
     expect(new Set(responses.map((res) => res.text)).size).toBe(1);
@@ -109,6 +111,7 @@ describe('report job: filling the deferred reply', () => {
     });
     await waitUntil(async () => (await db().query('SELECT 1 FROM job')).rows.length === 1);
 
+    await makeJobsDue(db());
     await h.drain();
 
     expect(patches()).toHaveLength(1);

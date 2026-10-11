@@ -246,3 +246,12 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** `path.resolve` for the root. The 320px check is therefore not browser-verified (the window could not be resized below ~958px in this session); it rests on the CSS and is listed as unverified in the report.
 - **Cost:** minutes.
 - **Lesson → guardrail:** none; the throwaway server is not committed.
+
+### 2026-10-11 — step 4 item 7: three Step 3 tests went red by themselves when the wall clock passed a hard-coded "now"
+
+- **Believed / generated:** a fixed `NOW_MS` (2026-10-11 15:30 UTC) keeps signed-request tests independent of the wall clock, and workers on the same fixed clock will claim any job the HTTP path just created.
+- **Noticed by:** the full `npm test` showed 3 failures in `reportJobReply.db.test.ts`. They also failed at the Step 3 commit, so no Step 4 change caused them. A debug query after `drain()` showed the job `pending` with no attempts.
+- **Root cause:** `job.next_run_at` defaults to the database `now()`, which is real time. Once real time passed `NOW_MS`, the worker (on the fake clock) saw the job as not yet due. The tests were green earlier that day and went red at 15:30 UTC.
+- **Fix:** `makeJobsDue()` in `test/helpers/pgApp.ts` pins `next_run_at` to the test clock before `drain()` in the three tests that enqueue through the HTTP path.
+- **Cost:** a failing suite reported but not investigated by the first agent that saw it; about ten minutes once looked at.
+- **Lesson → guardrail:** a test that mixes a fixed clock with DB-side `now()` is a time bomb. Pin the DB-side time too. I also ran `git stash` to compare against an old commit and it stashed the user's unrelated pending deletion; restored with `stash pop`, and I will not stash in a dirty tree again.

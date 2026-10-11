@@ -66,3 +66,12 @@ function delayed(ledger: LedgerService, delayMs: number | undefined): LedgerServ
     },
   };
 }
+
+/**
+ * The HTTP path stamps `job.next_run_at` from the database clock, while workers in these tests run on the
+ * fixed `NOW_MS` clock. Once the wall clock passes `NOW_MS` the job looks "not due yet" to the worker, so
+ * pin every job to the test clock.
+ */
+export async function makeJobsDue(pool: pg.Pool): Promise<void> {
+  await pool.query('UPDATE job SET next_run_at = $1', [new Date(NOW_MS)]);
+}
