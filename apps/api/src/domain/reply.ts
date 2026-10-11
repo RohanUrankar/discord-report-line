@@ -44,6 +44,7 @@ export const MESSAGES = {
   disabled: 'This command is turned off on this server.',
   dmUnsupported: 'This bot only works in servers.',
   notRecorded: "We couldn't log that right now. Please try again in a minute.",
+  statusUnavailable: "We couldn't check the status right now. Please try again in a minute.",
   emptyReport: 'Your report needs some text. Try `/report text: the printer is jammed`.',
   mirrorFailed:
     "⚠️ The team notification didn't go through. A server admin can see why on the dashboard.",

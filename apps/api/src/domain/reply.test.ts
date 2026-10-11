@@ -131,6 +131,14 @@ describe('reportModal', () => {
   });
 });
 
+describe('status unavailable notice', () => {
+  it('tells the user what happened and what to do, without technical detail', () => {
+    expect(MESSAGES.statusUnavailable).toBe(
+      "We couldn't check the status right now. Please try again in a minute.",
+    );
+  });
+});
+
 describe('buttons', () => {
   it('puts Acknowledge and Escalate buttons (type 2) inside one action row (type 1)', () => {
     expect(reportButtons(REPORT_ID)).toEqual({
