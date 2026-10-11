@@ -1,5 +1,8 @@
 // @ts-check
 import js from '@eslint/js';
+import { importX } from 'eslint-plugin-import-x';
+import nodePlugin from 'eslint-plugin-n';
+import security from 'eslint-plugin-security';
 import globals from 'globals';
 import path from 'node:path';
 import tseslint from 'typescript-eslint';
@@ -74,6 +77,7 @@ const domainImportsStayInside = {
 export default tseslint.config(
   { ignores: ['dist/**', 'coverage/**'] },
   js.configs.recommended,
+  security.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
   {
@@ -105,6 +109,73 @@ export default tseslint.config(
       'no-restricted-syntax': [
         'error',
         { selector: 'TSEnumDeclaration', message: 'Use an `as const` object and a derived union.' },
+      ],
+    },
+  },
+  {
+    // Import hygiene. Resolution is tsc's job (NodeNext), so `no-unresolved` is left off; these rules catch
+    // what tsc cannot: cycles between layers, undeclared dependencies, duplicate and misplaced imports.
+    plugins: { 'import-x': importX },
+    rules: {
+      'import-x/no-cycle': 'error',
+      'import-x/no-self-import': 'error',
+      'import-x/no-duplicates': 'error',
+      'import-x/first': 'error',
+      'import-x/newline-after-import': 'error',
+      'import-x/no-extraneous-dependencies': [
+        'error',
+        {
+          // Test tooling and the lint config itself may use devDependencies; shipped code may not.
+          devDependencies: ['**/*.test.ts', 'test/**', 'vitest.config.ts', 'eslint.config.js'],
+          // Shared tooling (vitest, typescript, eslint) is declared once in the workspace root.
+          packageDir: [import.meta.dirname, path.resolve(import.meta.dirname, '../..')],
+        },
+      ],
+    },
+  },
+  {
+    // Node safety. `no-process-env` makes config.ts the only reader of the environment (backend-guidelines);
+    // `no-sync` keeps blocking calls out of request and worker paths.
+    plugins: { n: nodePlugin },
+    rules: {
+      'n/no-process-env': 'error',
+      'n/no-sync': 'error',
+      'n/prefer-node-protocol': 'error',
+    },
+  },
+  {
+    // Config, the process entry point and test tooling are where the environment is legitimately read.
+    files: [
+      'src/config.ts',
+      'src/index.ts',
+      'test/**/*.ts',
+      'vitest.config.ts',
+      'src/**/*.test.ts',
+    ],
+    rules: { 'n/no-process-env': 'off' },
+  },
+  {
+    files: ['vitest.config.ts', 'test/**/*.ts', 'src/**/*.test.ts'],
+    rules: { 'n/no-sync': 'off' },
+  },
+  {
+    // `detect-object-injection` flags every `obj[key]`, which the types already constrain; with
+    // `noUncheckedIndexedAccess` on it is noise that hides the security rules that matter here.
+    rules: { 'security/detect-object-injection': 'off' },
+  },
+  {
+    // DESIGN §7: app/ orchestrates ports. It never imports I/O libraries or the layers that wire it.
+    files: ['src/app/**/*.ts'],
+    ignores: ['src/app/**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: IO_MODULES, message: 'app/ depends on ports/, never on I/O libraries.' },
+            { regex: '(^|/)(adapters|http)/', message: 'app/ must not import adapters/ or http/.' },
+          ],
+        },
       ],
     },
   },
