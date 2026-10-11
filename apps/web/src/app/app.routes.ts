@@ -1,6 +1,7 @@
 import type { Routes } from '@angular/router';
 
 import { authGuard, guestGuard } from './core/auth/auth.guard';
+import { unsavedChangesGuard } from './core/forms/unsaved-changes.guard';
 
 // Every feature is lazy: the first paint (sign-in) loads only the shell of the app. Parameters are inherited
 // by child routes (see app.config), so any page under /g/:guildId can read `guildId` as an input.
@@ -37,6 +38,13 @@ export const routes: Routes = [
             path: 'log',
             title: 'Command log',
             loadComponent: () => import('./features/command-log/log-page').then((m) => m.LogPage),
+          },
+          {
+            path: 'settings',
+            title: 'Settings',
+            canDeactivate: [unsavedChangesGuard],
+            loadComponent: () =>
+              import('./features/settings/settings-page').then((m) => m.SettingsPage),
           },
           {
             path: 'log/:interactionId',

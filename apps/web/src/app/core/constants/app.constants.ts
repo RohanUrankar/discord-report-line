@@ -23,6 +23,8 @@ export const SNACKBAR_SUCCESS_MS = 4_000;
 
 /** UX-only checks; the server stays authoritative. */
 export const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
+/** A Discord id, or nothing (an emptied field clears the setting). */
+export const OPTIONAL_SNOWFLAKE_PATTERN = /^(?:\d{17,20})?$/;
 export const REPLY_MESSAGE_MAX = 300;
 
 /** Characters of a Discord id shown when no name is known; the full id stays in the title/detail. */
