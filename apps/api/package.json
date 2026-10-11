@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@report-line/shared": "*",
+    "argon2": "0.45.1",
     "express": "5.3.0",
     "pg": "8.23.1",
     "pino": "10.4.0",
