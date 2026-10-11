@@ -1,5 +1,6 @@
 import pg from 'pg';
 
+import { errorLogFields } from '../../domain/errorFields.js';
 import type { Logger } from '../../ports/logger.js';
 
 const IDLE_CLIENT_TIMEOUT_MS = 30_000;
@@ -32,21 +33,7 @@ export function createRequestPool(settings: PoolSettings, logger: Logger): pg.Po
     application_name: APPLICATION_NAME,
   });
   pool.on('error', (error) => {
-    logger.error(describeDbError(error), 'db.pool_error');
+    logger.error(errorLogFields(error), 'db.pool_error');
   });
   return pool;
-}
-
-/**
- * What is safe to log about a database failure: the error class and the SQLSTATE / Node code. Never the
- * message or `detail`: Postgres puts the failing row's values there, and a job row holds the interaction token.
- */
-export function describeDbError(error: unknown): { errorName: string; errorCode?: string } {
-  if (!(error instanceof Error)) {
-    return { errorName: 'NonError' };
-  }
-  const code = 'code' in error && typeof error.code === 'string' ? error.code : undefined;
-  return code === undefined
-    ? { errorName: error.name }
-    : { errorName: error.name, errorCode: code };
 }

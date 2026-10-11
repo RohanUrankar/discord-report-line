@@ -164,7 +164,9 @@ describe('PgLedger.recordAndEnqueue', () => {
     const ledger = new PgLedger(pool);
 
     await ledger.recordAndEnqueue(answeredInput({ id: '900000000000000101' }));
-    const first = await pool.query<GuildRow>('SELECT id, name, post_channel_id, created_at FROM guild');
+    const first = await pool.query<GuildRow>(
+      'SELECT id, name, post_channel_id, created_at FROM guild',
+    );
     expect(first.rows).toHaveLength(1);
     expect(first.rows[0]).toMatchObject({ id: GUILD_ID, name: null, post_channel_id: null });
 
@@ -173,7 +175,9 @@ describe('PgLedger.recordAndEnqueue', () => {
     ]);
     await ledger.recordAndEnqueue(answeredInput({ id: '900000000000000102' }));
 
-    const second = await pool.query<GuildRow>('SELECT id, name, post_channel_id, created_at FROM guild');
+    const second = await pool.query<GuildRow>(
+      'SELECT id, name, post_channel_id, created_at FROM guild',
+    );
     expect(second.rows).toHaveLength(1);
     expect(second.rows[0]).toMatchObject({ name: 'Acme', post_channel_id: '42' });
     expect(second.rows[0]?.created_at).toEqual(first.rows[0]?.created_at);

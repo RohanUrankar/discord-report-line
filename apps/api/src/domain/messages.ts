@@ -15,3 +15,10 @@ export const MESSAGES = {
   acknowledgeButton: 'Acknowledge',
   escalateButton: 'Escalate',
 } as const;
+
+/** What the dashboard shows for an answered command (ACTION.summary). Fixed text: no user input in it. */
+export const ACTION_SUMMARIES = {
+  status: 'Showed the status counts.',
+  disabled: 'Replied that the command is turned off.',
+  unknown_command: 'Replied that the command is not recognised.',
+} as const;

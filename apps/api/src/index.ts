@@ -1,4 +1,6 @@
-import { StubStatusReader } from './adapters/stubStatusReader.js';
+import { PgLedger } from './adapters/pg/pgLedger.js';
+import { createRequestPool } from './adapters/pg/pool.js';
+import { PgStatusReader } from './adapters/pg/pgStatusReader.js';
 import { SystemClock } from './adapters/systemClock.js';
 import { InteractionController } from './app/interactions.js';
 import { ConfigError, loadServerConfig } from './config.js';
@@ -11,12 +13,26 @@ function main(): void {
   const config = loadServerConfig();
   const logger = createLogger(config.LOG_LEVEL);
 
+  // The pool connects lazily, so startup does not wait on the database and a cold start stays fast.
+  const pool = createRequestPool(
+    {
+      connectionString: config.DATABASE_URL,
+      max: config.DB_POOL_MAX,
+      connectionTimeoutMs: config.DB_CONNECTION_TIMEOUT_MS,
+      statementTimeoutMs: config.DB_STATEMENT_TIMEOUT_MS,
+      idleInTransactionTimeoutMs: config.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+    },
+    logger,
+  );
+  const clock = new SystemClock();
   const controller = new InteractionController({
     publicKeyHex: config.DISCORD_PUBLIC_KEY,
     replayWindowMs: config.REPLAY_WINDOW_MS,
     statusTimeoutMs: config.STATUS_TIMEOUT_MS,
-    clock: new SystemClock(),
-    statusReader: new StubStatusReader(),
+    recordTimeoutMs: config.RECORD_TIMEOUT_MS,
+    clock,
+    ledger: new PgLedger(pool),
+    statusReader: new PgStatusReader(pool, clock),
   });
   const server = createServer({ controller, logger }).listen(config.PORT, () => {
     logger.info({ port: config.PORT }, 'server.listening');
@@ -33,7 +49,11 @@ function main(): void {
   const shutdown = (signal: string): void => {
     logger.info({ signal }, 'server.shutting_down');
     server.close(() => {
-      process.exit(0);
+      // Drain the pool so in-flight transactions finish; the exit below is the backstop.
+      pool.end().then(
+        () => process.exit(0),
+        () => process.exit(1),
+      );
     });
     setTimeout(() => process.exit(1), SHUTDOWN_GRACE_MS).unref();
   };

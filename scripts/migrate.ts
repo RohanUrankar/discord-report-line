@@ -8,8 +8,8 @@ import {
   MigrationError,
   runMigrations,
 } from '../apps/api/src/adapters/pg/migrator.js';
-import { describeDbError } from '../apps/api/src/adapters/pg/pool.js';
 import { ConfigError, loadMigrateConfig } from '../apps/api/src/config.js';
+import { errorLogFields } from '../apps/api/src/domain/errorFields.js';
 
 const CONNECT_TIMEOUT_MS = 10_000;
 
@@ -40,6 +40,6 @@ function describeFailure(error: unknown): string {
   if (error instanceof ConfigError || error instanceof MigrationError) {
     return error.message;
   }
-  const { errorName, errorCode } = describeDbError(error);
+  const { errorName, errorCode } = errorLogFields(error);
   return `Could not use the database (${errorCode ?? errorName}). Check DATABASE_URL.`;
 }

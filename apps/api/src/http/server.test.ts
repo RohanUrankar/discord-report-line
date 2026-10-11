@@ -2,12 +2,16 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
 import { InteractionController, type InteractionHandler } from '../app/interactions.js';
-import { MESSAGES } from '../domain/messages.js';
+import { ACTION_SUMMARIES, MESSAGES } from '../domain/messages.js';
 import type { StatusCounts } from '../domain/status.js';
+import type { LedgerService, RecordInput, RecordOutcome } from '../ports/ledger.js';
 import type { StatusReader } from '../ports/status.js';
 import {
+  CHANNEL_ID,
   FAKE_INTERACTION_TOKEN,
   GUILD_ID,
+  INTERACTION_ID,
+  USER_ID,
   commandPayload,
   componentPayload,
   dmCommandPayload,
@@ -26,6 +30,7 @@ import { createServer } from './server.js';
 const NOW_MS = 1_800_000_000_000;
 const REPLAY_WINDOW_MS = 300_000;
 const STATUS_TIMEOUT_MS = 50;
+const RECORD_TIMEOUT_MS = 50;
 const EPHEMERAL = 64;
 const IDLE_COUNTS: StatusCounts = { reportsToday: 3, retrying: 1, workerLastBeatSeconds: 4 };
 
@@ -49,16 +54,32 @@ class FakeStatusReader implements StatusReader {
   }
 }
 
-function harness(behaviour: () => Promise<StatusCounts> = () => Promise.resolve(IDLE_COUNTS)) {
+class FakeLedger implements LedgerService {
+  public readonly inputs: RecordInput[] = [];
+  public constructor(private readonly behaviour: () => Promise<RecordOutcome>) {}
+
+  public recordAndEnqueue(input: RecordInput): Promise<RecordOutcome> {
+    this.inputs.push(input);
+    return this.behaviour();
+  }
+}
+
+function harness(
+  behaviour: () => Promise<StatusCounts> = () => Promise.resolve(IDLE_COUNTS),
+  ledgerBehaviour: () => Promise<RecordOutcome> = () => Promise.resolve('won'),
+) {
   const keypair = generateTestKeypair();
   const sink = new LogSink();
   const logger = createLogger('debug', sink);
   const reader = new FakeStatusReader(behaviour);
+  const ledger = new FakeLedger(ledgerBehaviour);
   const controller = new InteractionController({
     publicKeyHex: keypair.publicKeyHex,
     replayWindowMs: REPLAY_WINDOW_MS,
     statusTimeoutMs: STATUS_TIMEOUT_MS,
+    recordTimeoutMs: RECORD_TIMEOUT_MS,
     clock: { nowMs: () => NOW_MS },
+    ledger,
     statusReader: reader,
   });
   const app = createServer({ controller, logger });
@@ -74,7 +95,7 @@ function harness(behaviour: () => Promise<StatusCounts> = () => Promise.resolve(
     return post(body, signRequest(keypair, timestamp, body));
   };
 
-  return { app, keypair, sink, reader, post, signedPost };
+  return { app, keypair, sink, reader, ledger, post, signedPost };
 }
 
 describe('POST /interactions: signature verification', () => {
@@ -306,6 +327,136 @@ describe('POST /interactions: /status', () => {
     expect(replyOf(res).data.content).toBe(MESSAGES.statusUnavailable);
     expect(sink.messages().filter((m) => m === 'status.read_failed')).toHaveLength(1);
     expect(sink.text()).not.toContain('db.internal');
+  });
+});
+
+describe('POST /interactions: recording before replying', () => {
+  it('WHEN a user runs /status THE SYSTEM SHALL record it as answered with a skipped mirror and no job', async () => {
+    const { signedPost, ledger } = harness();
+
+    await signedPost(commandPayload('status')).expect(200);
+
+    expect(ledger.inputs).toEqual([
+      {
+        interaction: {
+          id: INTERACTION_ID,
+          guildId: GUILD_ID,
+          channelId: CHANNEL_ID,
+          userId: USER_ID,
+          type: 2,
+          commandName: 'status',
+          customId: null,
+          options: {},
+          status: 'answered',
+        },
+        action: {
+          type: 'status',
+          summary: ACTION_SUMMARIES.status,
+          mirrorStatus: 'skipped',
+        },
+      },
+    ]);
+  });
+
+  it('WHEN a command is unknown THE SYSTEM SHALL record it as an unknown_command action before the notice', async () => {
+    const { signedPost, ledger } = harness();
+
+    const res = await signedPost(commandPayload('nonsense'));
+
+    expect(replyOf(res).data.content).toBe(MESSAGES.unknownCommand);
+    expect(ledger.inputs).toHaveLength(1);
+    expect(ledger.inputs[0]?.action.type).toBe('unknown_command');
+    expect(ledger.inputs[0]?.interaction.commandName).toBe('nonsense');
+    expect(ledger.inputs[0]?.job).toBeUndefined();
+  });
+
+  it('THE SYSTEM SHALL finish recording before it reads the status or replies', async () => {
+    const events: string[] = [];
+    const { signedPost } = harness(
+      () => {
+        events.push('read');
+        return Promise.resolve(IDLE_COUNTS);
+      },
+      () => {
+        events.push('record');
+        return Promise.resolve('won');
+      },
+    );
+
+    await signedPost(commandPayload('status')).expect(200);
+
+    expect(events).toEqual(['record', 'read']);
+  });
+
+  it('WHEN the ledger reports a duplicate THE SYSTEM SHALL still give the normal reply and not treat it as a failure', async () => {
+    const { signedPost, sink } = harness(undefined, () => Promise.resolve('duplicate'));
+
+    const res = await signedPost(commandPayload('status'));
+
+    expect(replyOf(res).data.content).toBe(
+      'Reports today: 3 · Retrying: 1 · Worker last active 4 s ago.',
+    );
+    expect(sink.messages()).toContain('interaction.duplicate');
+    expect(sink.messages()).not.toContain('ledger.record_failed');
+  });
+
+  it('WHEN recording fails THE SYSTEM SHALL say it was not recorded, ephemerally, and never claim success', async () => {
+    const { signedPost, reader, sink } = harness(undefined, () =>
+      Promise.reject(
+        Object.assign(new Error(`Failing row contains (${FAKE_INTERACTION_TOKEN})`), {
+          code: '08006',
+        }),
+      ),
+    );
+
+    const res = await signedPost(commandPayload('status'));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      type: 4,
+      data: {
+        content: MESSAGES.notRecorded,
+        allowed_mentions: { parse: [] },
+        flags: EPHEMERAL,
+      },
+    });
+    expect(reader.calls).toEqual([]);
+    const failures = sink.records().filter((record) => record.msg === 'ledger.record_failed');
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ errorName: 'Error', errorCode: '08006' });
+    expect(sink.text()).not.toContain(FAKE_INTERACTION_TOKEN);
+  });
+
+  it('WHEN recording hangs THE SYSTEM SHALL answer not-recorded well inside the 3 s limit', async () => {
+    const { signedPost, reader } = harness(
+      undefined,
+      () => new Promise<RecordOutcome>(() => undefined),
+    );
+    const startedAt = performance.now();
+
+    const res = await signedPost(commandPayload('status'));
+
+    expect(performance.now() - startedAt).toBeLessThan(1000);
+    expect(replyOf(res).data.content).toBe(MESSAGES.notRecorded);
+    expect(replyOf(res).data.flags).toBe(EPHEMERAL);
+    expect(reader.calls).toEqual([]);
+  });
+
+  it('WHEN a request is forged, stale, a PING, a DM or not yet supported THE SYSTEM SHALL record nothing', async () => {
+    const { signedPost, post, keypair, ledger } = harness();
+    const body = JSON.stringify(commandPayload('status'));
+
+    await post(body, {
+      ...signRequest(keypair, unixSeconds(NOW_MS), body),
+      'x-signature-ed25519': '00'.repeat(64),
+    });
+    await signedPost(commandPayload('status'), unixSeconds(NOW_MS - 3_600_000));
+    await signedPost(pingPayload);
+    await signedPost(dmCommandPayload('status'));
+    await signedPost(componentPayload('rpt:ack:1'));
+    await signedPost(commandPayload('report'));
+
+    expect(ledger.inputs).toEqual([]);
   });
 });
 

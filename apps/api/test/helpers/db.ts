@@ -119,7 +119,12 @@ function queryTextOf(first: unknown): string {
   if (typeof first === 'string') {
     return first;
   }
-  if (typeof first === 'object' && first !== null && 'text' in first && typeof first.text === 'string') {
+  if (
+    typeof first === 'object' &&
+    first !== null &&
+    'text' in first &&
+    typeof first.text === 'string'
+  ) {
     return first.text;
   }
   return '';
