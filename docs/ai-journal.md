@@ -221,3 +221,11 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** the test installs recording `Proxy` stand-ins with `vi.stubGlobal` and asserts nothing was read or written. That is a stronger test anyway: it fails on a read, not only on leftover data.
 - **Cost:** minutes.
 - **Lesson → guardrail:** the stub-based test in `auth.spec.ts`.
+### 2026-10-12 — step 4 item 6 (web): fake timers froze Angular's own scheduler, and TypeScript could not see a closure's write
+
+- **Believed / generated:** (a) `vi.useFakeTimers()` around a component test lets me drive the 5-second poll with `advanceTimersByTimeAsync` while the helper still `await fixture.whenStable()`; (b) `let changed = false; items.map(... changed = true ...)` and then `if (!changed)` is ordinary code.
+- **Noticed by:** (a) five tests timing out at exactly 5000 ms, all of them the fake-timer ones; (b) `@typescript-eslint/no-unnecessary-condition: value is always falsy`.
+- **Root cause:** (a) zoneless Angular schedules change detection with a `setTimeout` (raced against `requestAnimationFrame`); with `setTimeout` faked, `whenStable()` waits forever for a render that is queued on a clock that never moves. (b) TS narrows `changed` to the literal `false` because the assignment happens in a callback; the lint rule was right that my condition looked constant, and the real fix was to derive it (`updated.some((row, i) => row !== current[i])`) instead of mutating a flag.
+- **Fix:** live-update tests use an `openLive()` helper that settles with `advanceTimersByTimeAsync(0)` plus `detectChanges()`; the store derives `changed` from the result.
+- **Cost:** about ten minutes on (a).
+- **Lesson → guardrail:** the two helpers (`open` for real timers, `openLive` for fake ones) are named for what they are; the polling rules themselves are tested without a component in `polling-loop.spec.ts`.

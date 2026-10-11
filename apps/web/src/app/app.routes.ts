@@ -31,7 +31,14 @@ export const routes: Routes = [
       {
         path: 'g/:guildId',
         loadComponent: () => import('./core/layout/guild-layout').then((m) => m.GuildLayout),
-        children: [{ path: '', pathMatch: 'full', redirectTo: 'log' }],
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'log' },
+          {
+            path: 'log',
+            title: 'Command log',
+            loadComponent: () => import('./features/command-log/log-page').then((m) => m.LogPage),
+          },
+        ],
       },
       {
         path: '**',

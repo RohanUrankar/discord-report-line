@@ -71,6 +71,13 @@ a {
   color: var(--mat-sys-primary);
 }
 
+// Material components draw their own strong focus ring; plain links and tab-stop containers need one too.
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--mat-sys-primary);
+  outline-offset: 2px;
+}
+
 code {
   font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
   font-size: 0.9em;
