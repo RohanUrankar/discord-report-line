@@ -1,11 +1,13 @@
 import type { Server } from 'node:http';
 
+import { PgHealthReader } from './adapters/pg/pgHealthReader.js';
 import { PgLedger } from './adapters/pg/pgLedger.js';
 import { createRequestPool } from './adapters/pg/pool.js';
 import { PgReportActionStore } from './adapters/pg/pgReportActionStore.js';
 import { PgRuleReader } from './adapters/pg/pgRuleReader.js';
 import { PgStatusReader } from './adapters/pg/pgStatusReader.js';
 import { SystemClock } from './adapters/systemClock.js';
+import { HealthService } from './app/health.js';
 import { InteractionController } from './app/interactions.js';
 import { composeAuth, composeDashboard, composeGuildConfig, composeWorker } from './compose.js';
 import {
@@ -106,6 +108,10 @@ async function startServerWithWorker(config: ServerConfig): Promise<void> {
     guildConfig: composeGuildConfig(config, requestPool),
     cookie,
     trustProxyHops: config.TRUST_PROXY_HOPS,
+    health: new HealthService(new PgHealthReader(requestPool), clock, {
+      timeoutMs: config.HEALTH_TIMEOUT_MS,
+      staleAfterMs: config.LEASE_MS,
+    }),
     ...(webDistDir === undefined ? {} : { webDistDir }),
   }).listen(config.PORT, () => {
     logger.info({ port: config.PORT }, 'server.listening');

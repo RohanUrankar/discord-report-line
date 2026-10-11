@@ -22,7 +22,7 @@ const COOKIE_NAME = '__Host-session';
 const CSRF_HEADER = 'X-CSRF-Token';
 const unusedController: InteractionHandler = { handle: () => Promise.resolve({ status: 401 }) };
 
-async function setup(options: { secure?: boolean } = {}): Promise<{
+async function setup(options: { secure?: boolean; trustProxyHops?: number } = {}): Promise<{
   kit: AuthKit;
   sink: LogSink;
   app: ReturnType<typeof createServer>;
@@ -38,6 +38,7 @@ async function setup(options: { secure?: boolean } = {}): Promise<{
     dashboard: unusedDashboard(),
     guildConfig: unusedGuildConfig(),
     cookie,
+    ...(options.trustProxyHops === undefined ? {} : { trustProxyHops: options.trustProxyHops }),
   });
   return { kit, sink, app };
 }
@@ -287,6 +288,48 @@ describe('login rate limit', () => {
     const res = await login(app, { email: 'another@example.test', password: 'wrong' });
 
     expect(res.status).toBe(429);
+  });
+});
+
+describe('login throttle behind a reverse proxy', () => {
+  const sprayFrom = async (app: ReturnType<typeof createServer>, client: string): Promise<void> => {
+    for (let attempt = 0; attempt < LOGIN_LIMIT_PER_IP; attempt += 1) {
+      await login(app, { email: `user${String(attempt)}@example.test`, password: 'wrong' }).set(
+        'X-Forwarded-For',
+        client,
+      );
+    }
+  };
+
+  it('WHEN TRUST_PROXY_HOPS is 1 THE SYSTEM SHALL throttle each forwarded client separately', async () => {
+    const { app } = await setup({ trustProxyHops: 1 });
+    await sprayFrom(app, '203.0.113.7');
+
+    const sameClient = await login(app, { email: 'x@example.test', password: 'wrong' }).set(
+      'X-Forwarded-For',
+      '203.0.113.7',
+    );
+    const otherClient = await login(app).set('X-Forwarded-For', '203.0.113.8');
+
+    expect(sameClient.status).toBe(429);
+    expect(otherClient.status).toBe(200);
+  });
+
+  it('WHEN the proxy is not trusted THE SYSTEM SHALL warn once that forwarded headers are being ignored', async () => {
+    const { app, sink } = await setup();
+
+    await login(app).set('X-Forwarded-For', '203.0.113.7');
+    await login(app).set('X-Forwarded-For', '203.0.113.8');
+
+    expect(sink.messages().filter((m) => m === 'config.proxy_not_trusted')).toHaveLength(1);
+  });
+
+  it('WHEN the proxy is trusted THE SYSTEM SHALL not warn', async () => {
+    const { app, sink } = await setup({ trustProxyHops: 1 });
+
+    await login(app).set('X-Forwarded-For', '203.0.113.7');
+
+    expect(sink.messages()).not.toContain('config.proxy_not_trusted');
   });
 });
 

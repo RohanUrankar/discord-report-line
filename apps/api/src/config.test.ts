@@ -37,6 +37,7 @@ describe('loadServerConfig', () => {
       STATUS_TIMEOUT_MS: 1200,
       RECORD_TIMEOUT_MS: 1000,
       RULE_TIMEOUT_MS: 400,
+      HEALTH_TIMEOUT_MS: 2000,
       DATABASE_URL,
       DB_POOL_MAX: 5,
       DB_CONNECTION_TIMEOUT_MS: 1000,

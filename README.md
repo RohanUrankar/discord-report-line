@@ -21,7 +21,7 @@ A Discord bot that takes reports from a server, records each one exactly once, m
 | `/report text:` blank or over 1000 characters             | A short private notice, nothing stored                                                                                                                                 |
 | Acknowledge / Escalate on a processed report              | Updates the message in place (type 7) and records the click; a stale or foreign button gets a private notice. Escalate records and shows the state only: no Slack call |
 | A DM                                                      | A short private notice (not recorded yet)                                                                                                                              |
-| `GET /healthz`                                            | `200 {"status":"ok"}`                                                                                                                                                  |
+| `GET /healthz`                                            | `200 {"status":"ok","db":"up","worker":"ok"}`, or `503` when the database does not answer or the worker has stopped beating                                            |
 
 ## Run it locally
 
@@ -63,7 +63,7 @@ Port 5433 is only an example of a spare port; use any free one. Stop it with `pg
 
 **Option B: Docker Compose** (Docker Desktop must be running). Set `POSTGRES_PASSWORD` in your local env file, use the same password in the URLs above (host `localhost`, port `5432`, or whatever `POSTGRES_PORT` you set), then `docker compose up -d db`. The first start also creates the `report_line_test` database.
 
-**Option C: hosted** (for example Neon): use its pooled connection string with `?sslmode=require`, and a separate branch or database for `DATABASE_URL_TEST`.
+**Option C: hosted** (for example Neon): use its pooled connection string with `?sslmode=verify-full` (the driver verifies the server certificate; never turn verification off), and a separate branch or database for `DATABASE_URL_TEST`.
 
 Then:
 
@@ -87,6 +87,7 @@ Every variable is validated at startup; a bad or missing one stops the process a
 | `POSTGRES_PASSWORD`                               | docker compose                     | Docker only |                                     | Password of the Compose container's `report_line` user                                               |
 | `RECORD_TIMEOUT_MS`                               | server                             | no          | `1000`                              | Rule read + recording + status read must together fit the 3 s window (sum max 2800)                  |
 | `RULE_TIMEOUT_MS`                                 | server                             | no          | `400`                               | How long the rule read may take before the command is answered "not logged"                          |
+| `HEALTH_TIMEOUT_MS`                               | server                             | no          | `2000`                              | How long `/healthz` waits for the database before answering 503                                      |
 | `DB_POOL_MAX`                                     | server                             | no          | `5`                                 | Free-tier Postgres allows few connections                                                            |
 | `DB_CONNECTION_TIMEOUT_MS`                        | server                             | no          | `1000`                              | Waiting for a connection                                                                             |
 | `DB_STATEMENT_TIMEOUT_MS`                         | server                             | no          | `1500`                              | Enforced by Postgres per statement                                                                   |

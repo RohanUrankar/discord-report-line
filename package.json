@@ -12,14 +12,16 @@
   },
   "scripts": {
     "dev": "npm run dev -w @report-line/api",
-    "register-commands": "tsx --env-file=.env scripts/register-commands.ts",
+    "build": "npm run build -w @report-line/web",
+    "start": "npm run start -w @report-line/api",
+    "register-commands": "tsx --env-file-if-exists=.env scripts/register-commands.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "format": "prettier --write .",
-    "db:migrate": "tsx --env-file=.env scripts/migrate.ts",
-    "set-mirror-webhook": "tsx --env-file=.env scripts/set-mirror-webhook.ts",
-    "seed-admin": "tsx --env-file=.env scripts/seed-admin.ts"
+    "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
+    "set-mirror-webhook": "tsx --env-file-if-exists=.env scripts/set-mirror-webhook.ts",
+    "seed-admin": "tsx --env-file-if-exists=.env scripts/seed-admin.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

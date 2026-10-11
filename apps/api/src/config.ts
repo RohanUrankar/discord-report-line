@@ -28,6 +28,7 @@ const logLevel = z.preprocess(unlessEmpty, z.enum(LOG_LEVELS).default('info'));
 // Request-path database limits (resilience skill): nothing on the 3 s path may wait without a bound.
 const DEFAULT_RECORD_TIMEOUT_MS = 1000;
 const DEFAULT_RULE_TIMEOUT_MS = 400;
+const DEFAULT_HEALTH_TIMEOUT_MS = 2000; // /healthz: long enough for a hosted database to wake, short enough for a pinger
 const DEFAULT_DB_POOL_MAX = 5; // free-tier Postgres allows few connections
 const DEFAULT_DB_CONNECTION_TIMEOUT_MS = 1000;
 const DEFAULT_DB_STATEMENT_TIMEOUT_MS = 1500;
@@ -135,6 +136,7 @@ const ServerEnv = z
     STATUS_TIMEOUT_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_STATUS_TIMEOUT_MS)),
     RECORD_TIMEOUT_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_RECORD_TIMEOUT_MS)),
     RULE_TIMEOUT_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_RULE_TIMEOUT_MS)),
+    HEALTH_TIMEOUT_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_HEALTH_TIMEOUT_MS)),
     DATABASE_URL: z.preprocess(unlessEmpty, databaseUrl),
     DB_POOL_MAX: z.preprocess(unlessEmpty, positiveInt.max(50).default(DEFAULT_DB_POOL_MAX)),
     DB_CONNECTION_TIMEOUT_MS: z.preprocess(

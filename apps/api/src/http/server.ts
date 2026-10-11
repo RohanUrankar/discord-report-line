@@ -3,6 +3,7 @@ import express, { Router, type Express, type RequestHandler } from 'express';
 import type { AuthService } from '../app/auth.js';
 import type { DashboardService } from '../app/dashboard.js';
 import type { GuildConfigService } from '../app/guildConfig.js';
+import { healthHttpStatus, type HealthService } from '../app/health.js';
 import type { InteractionHandler } from '../app/interactions.js';
 import type { Logger } from '../ports/logger.js';
 import { authRouter } from './authRoutes.js';
@@ -23,6 +24,23 @@ const noStore: RequestHandler = (_req, res, next) => {
   next();
 };
 
+/**
+ * Behind a TLS-terminating proxy every request arrives from the proxy's address unless TRUST_PROXY_HOPS tells
+ * Express how many hops to believe. Left at 0, the login throttle would count every admin as one client. A
+ * forwarded-for header with no trust configured is the symptom, so say so once (a log line, not a refusal:
+ * a header can also be forged by a direct client).
+ */
+function warnOnUnconfiguredProxy(trustProxyHops: number, logger: Logger): RequestHandler {
+  let warned = false;
+  return (req, _res, next) => {
+    if (trustProxyHops === 0 && !warned && req.header('x-forwarded-for') !== undefined) {
+      warned = true;
+      contextOf(req, logger).log.warn({}, 'config.proxy_not_trusted');
+    }
+    next();
+  };
+}
+
 function apiRouter(deps: DashboardHttpDeps): Router {
   const router = Router();
   router.use('/auth', authRouter(deps));
@@ -39,6 +57,8 @@ export interface ServerDeps {
   cookie: SessionCookieSettings;
   /** Reverse proxies in front of the app (0 = none), so `req.ip`, which the login throttle keys on, is real. */
   trustProxyHops?: number;
+  /** The `/healthz` verdict. Absent (unit tests): liveness only, no dependency is touched. */
+  health?: HealthService;
   /** A directory `findDashboardDir` accepted: the Angular build to serve from this same origin. Undefined: API only. */
   webDistDir?: string;
 }
@@ -62,6 +82,7 @@ export function createServer({
   guildConfig,
   cookie,
   trustProxyHops = 0,
+  health,
   webDistDir,
 }: ServerDeps): Express {
   const app = express();
@@ -70,10 +91,20 @@ export function createServer({
     app.set('trust proxy', trustProxyHops);
   }
   app.use(requestContext(logger));
+  app.use(warnOnUnconfiguredProxy(trustProxyHops, logger));
   app.use(securityHeaders);
 
-  app.get('/healthz', (_req, res) => {
-    res.json({ status: 'ok' });
+  app.get('/healthz', async (req, res) => {
+    if (health === undefined) {
+      res.json({ status: 'ok' });
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    const report = await health.check();
+    if (report.status !== 'ok') {
+      contextOf(req, logger).log.warn({ db: report.db, worker: report.worker }, 'health.unhealthy');
+    }
+    res.status(healthHttpStatus(report)).json(report);
   });
 
   app.post('/interactions', rawInteractionBody(), async (req, res) => {

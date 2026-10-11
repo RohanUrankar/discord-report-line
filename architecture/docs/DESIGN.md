@@ -12,7 +12,7 @@
 
 **Changes 2026-10-12 (rev 7):** Step 5 decisions (§5.5): verified component numbers, the modal path, runtime rule reads, report buttons. Rule reads at runtime were missing after Step 4 (the controller used defaults only) and are now wired through one `resolveAction`.
 
-**Changes 2026-10-12 (rev 8):** Step 6 decisions. A: replay check keeps the 5-minute past window and adds a separate 60 s future-skew bound (§13 T-03).
+**Changes 2026-10-12 (rev 8):** Step 6 decisions. A: replay check keeps the 5-minute past window and adds a separate 60 s future-skew bound (§13 T-03). B: `/healthz` probes the database and the worker heartbeat (§14 Observability); deploy scripts (§16 Step 6, Appendix A).
 
 ---
 
@@ -1064,7 +1064,7 @@ Trust boundaries and numbered flows are in the DFD (section 2.4).
 | Postgres | transient | short retry; connection pool bounded |
 | Worker | process crash mid-job | claim lease expires, another worker (or the restarted one) repicks; outbox is durable |
 
-**Observability:** structured JSON logs, `interaction_id` as correlation id from receive to follow-up; counters for received / verify-failed / deduped / deferred / jobs pending / retrying / dead / follow-up-ok / fallback-used; `/healthz` returns DB reachability + worker heartbeat; the dashboard surfaces dead jobs and per-attempt history. Alert symptom: dead-job count rising or pending backlog not draining.
+**Observability:** structured JSON logs, `interaction_id` as correlation id from receive to follow-up; counters for received / verify-failed / deduped / deferred / jobs pending / retrying / dead / follow-up-ok / fallback-used; `/healthz` returns DB reachability + worker heartbeat (rev 8: unauthenticated, three words `{status, db, worker}` and no counts or ids; one primary-key query bounded by `HEALTH_TIMEOUT_MS` (2 s); `503` when the database does not answer in time or the last beat is older than `LEASE_MS` (the same "presumed dead" rule as job leases), with a start-up grace of one lease so a cold boot is not reported dead; the answer is reused for 5 s so a flood of pings is one query; a keep-warm pinger therefore also wakes a suspended hosted database); the dashboard surfaces dead jobs and per-attempt history. Alert symptom: dead-job count rising or pending backlog not draining.
 
 ---
 
