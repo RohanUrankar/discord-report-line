@@ -156,7 +156,7 @@ export default tseslint.config(
   },
   {
     files: ['vitest.config.ts', 'test/**/*.ts', 'src/**/*.test.ts'],
-    rules: { 'n/no-sync': 'off' },
+    rules: { 'n/no-sync': 'off', 'security/detect-non-literal-fs-filename': 'off' },
   },
   {
     // `detect-object-injection` flags every `obj[key]`, which the types already constrain; with

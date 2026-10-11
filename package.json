@@ -15,7 +15,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "db:migrate": "tsx --env-file=.env scripts/migrate.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
