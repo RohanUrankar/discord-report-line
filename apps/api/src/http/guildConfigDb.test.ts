@@ -378,6 +378,23 @@ describe('rules', () => {
     ['an unknown key', { ...reportRule.config, [`extra${SENTINEL}`]: 1 }, ['config']],
     ['a wrong type', { ...reportRule.config, mirror: SENTINEL }, ['config.mirror']],
     [
+      'the string "true" for a boolean',
+      { ...reportRule.config, ephemeral: 'true' },
+      ['config.ephemeral'],
+    ],
+    ['version 2', { ...reportRule.config, version: 2 }, ['config.version']],
+    ['an empty reply message', { ...reportRule.config, replyMessage: '' }, ['config.replyMessage']],
+    [
+      'a whitespace-only reply message',
+      { ...reportRule.config, replyMessage: '  \n ' },
+      ['config.replyMessage'],
+    ],
+    [
+      'a 301-character reply message',
+      { ...reportRule.config, replyMessage: 'x'.repeat(301) },
+      ['config.replyMessage'],
+    ],
+    [
       'a missing field',
       { version: 1, ephemeral: true },
       ['config.replyMessage', 'config.mirror', 'config.tag'],
@@ -401,6 +418,20 @@ describe('rules', () => {
       expect(await snapshot(db())).toBe(before);
     },
   );
+
+  it('WHEN a status rule carries a reply message THE SYSTEM SHALL reject it, naming the field and not echoing its value', async () => {
+    const before = await snapshot(db());
+
+    const res = await kit.send('put', adminA, rulesPath(GUILD_A, 'status'), {
+      enabled: true,
+      config: { version: 1, ephemeral: true, replyMessage: SENTINEL },
+    });
+
+    expect(res.status).toBe(400);
+    expect(fieldsOf(res)).toEqual(['config.replyMessage']);
+    expectNoSecret(res);
+    expect(await snapshot(db())).toBe(before);
+  });
 
   it.each([
     ['a missing enabled flag', { config: DEFAULT_RULES.status }, ['enabled']],

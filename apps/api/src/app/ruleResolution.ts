@@ -1,6 +1,6 @@
 import { withDeadline } from './deadline.js';
 import { errorLogFields } from '../domain/errorFields.js';
-import { evaluate, isCommandName, validateRule } from '../domain/rules.js';
+import { evaluate, isCommandName, loggableFields, validateRule } from '../domain/rules.js';
 import type { Action } from '../domain/types.js';
 import type { Logger } from '../ports/logger.js';
 import type { RuleReader } from '../ports/rules.js';
@@ -30,7 +30,7 @@ export async function resolveAction(
     }
     const checked = validateRule(command, stored.config);
     if (!checked.ok) {
-      log.warn({ command, fields: checked.fields }, 'rule.invalid_stored');
+      log.warn({ command, fields: loggableFields(checked.fields) }, 'rule.invalid_stored');
     }
     return evaluate(command, { enabled: stored.enabled }, stored.config);
   } catch (error) {

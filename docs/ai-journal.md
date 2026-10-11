@@ -271,3 +271,19 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** decoder requires the ms-truncated string to round-trip through `toISOString()` and year >= 1; the reader also maps 22007/22008 to `InvalidCursorError`; the server-path guard now also wraps `express.static`.
 - **Cost:** none shipped; both were caught before commit.
 - **Lesson → guardrail:** the cursor, cookie and dot-segment cases are now tests; the guard-disabled check is the way to prove a regression test bites.
+
+### 2026-10-12 — step 5 audit: Step 4 "rules editing" was saved but never read by the bot
+- **Believed / generated:** Step 4 item 3 shipped `PUT /rules` with strict schemas and a green test list, so "rules are data" worked end to end. The Step 3 controller even carried the comment "No rule store yet: every command is enabled with its default config", and nobody removed or revisited it when the store arrived.
+- **Noticed by:** the Step 5 audit, grepping for callers of `evaluate`: exactly one, with a hard-coded `{ enabled: true }, null`. An admin could switch `/report` off in the dashboard and the bot would carry on.
+- **Root cause:** the editing feature and the runtime feature had separate acceptance criteria; the save tests proved rows were written, nothing proved a row was read.
+- **Fix:** `resolveAction` (read, validate, log, `evaluate`) is the single runtime path, wired into commands, the modal submit and the buttons; tests change the row with SQL and watch the next command.
+- **Cost:** none shipped to users (no deployment yet), but the "disabled" switch had been silently inert for the whole of Step 4.
+- **Lesson → guardrail:** for every "configurable X" feature, one test must change X and observe the behaviour, not just the stored row.
+
+### 2026-10-12 — step 5: my own warning log leaked an unknown key NAME from a corrupt rule row
+- **Believed / generated:** `validateRule` "reports field paths, never values", so its `fields` are safe to put in a `rule.invalid_stored` warning.
+- **Noticed by:** the corrupt-row test (row changed with a real `UPDATE`, one key whose name is a sentinel string): the sentinel was in the log. `fieldPaths` names an unknown key on purpose, for the editor; the API route already hides it through `publicFieldPaths`, the log path did not.
+- **Root cause:** reused a function whose contract was "safe for the admin who typed it" for a place where the key name is unvetted stored data.
+- **Fix:** `loggableFields` (known rule field names only; anything else reported as `(root)`) in the runtime path; `validateRule` is unchanged.
+- **Cost:** none shipped; caught by the test written for exactly this.
+- **Lesson → guardrail:** "paths, not values" is not enough when the path itself is data; log tests need a sentinel in key position as well as value position.

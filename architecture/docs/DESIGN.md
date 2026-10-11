@@ -340,6 +340,9 @@ Every deferred row above assumes the follow-up lands inside the 15-minute token 
 - *Disabled:* a turned-off `/report` also turns off its buttons. The click gets the disabled notice and nothing is written, so "off" means off on every path.
 
 **Rules at runtime.** After Step 4 the controller still used defaults. Now `app/ruleResolution.ts: resolveAction` is the only place a stored rule becomes an `Action`: it reads `command_rule` for (signed guild id, command) with a 500 ms deadline, runs `validateRule` (an invalid row logs `rule.invalid_stored` with field paths only), and calls `evaluate`, which falls back to `DEFAULT_RULES`. If the rule cannot be read at all the user gets the ephemeral "not logged" notice rather than a guess about whether the command is switched off.
+- *Snapshot:* audited, no code change needed. The worker never reads `command_rule`. `ephemeral`, `replyMessage`, `mirror` and `tag` are copied into `job.payload` at enqueue, and `mirror_status` is set on the ACTION row in the same transaction, so an admin editing the rule between the defer and the worker pass cannot change visibility, wording, mirroring or what the fallback post reveals. Tests edit the row after the defer to prove it.
+- *Logging a bad stored row:* `rule.invalid_stored` carries field paths from `loggableFields`, which reports only the field names a rule defines. `validateRule` names an invented key because the editor shows it to the admin who typed it; in a stored row that name is unvetted data, so a log reports it as `(root)`.
+- *Disabled* means off on every path: `/status`, `/report` with text, `/report` with no text (no modal), the modal submit, and the report buttons. Only a commandless interaction (an unreadable rule) is answered differently, with the "not logged" notice.
 
 ---
 

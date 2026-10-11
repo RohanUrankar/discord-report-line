@@ -7,7 +7,7 @@ import {
 } from '@report-line/shared';
 import type { z } from 'zod';
 
-import { fieldPaths, ROOT_FIELD } from './fieldPaths.js';
+import { fieldPaths, publicFieldPaths, ROOT_FIELD } from './fieldPaths.js';
 import type { Action } from './types.js';
 
 export { ROOT_FIELD };
@@ -21,6 +21,25 @@ export interface RuleContext {
 }
 
 const UNKNOWN_COMMAND_FIELD = 'command';
+
+/** The field names a rule config defines. */
+const RULE_FIELDS: ReadonlySet<string> = new Set([
+  ROOT_FIELD,
+  'version',
+  'ephemeral',
+  'replyMessage',
+  'mirror',
+  'tag',
+]);
+
+/**
+ * Field paths that are safe to LOG for a stored row. `validateRule` names an invented key because the editor
+ * shows it to the admin who typed it; a stored row's key names are data nobody vetted, so in a log line an
+ * unknown key is reported as its parent (`(root)`), never by name.
+ */
+export function loggableFields(fields: readonly string[]): string[] {
+  return publicFieldPaths(fields, RULE_FIELDS);
+}
 
 export function isCommandName(command: string): command is CommandName {
   // Object.hasOwn, not `in`: a command named "__proto__" or "toString" must not match.

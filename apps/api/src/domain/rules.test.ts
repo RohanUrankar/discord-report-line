@@ -1,7 +1,7 @@
 import { DEFAULT_RULES } from '@report-line/shared';
 import { describe, expect, it } from 'vitest';
 
-import { ROOT_FIELD, evaluate, isCommandName, validateRule } from './rules.js';
+import { ROOT_FIELD, evaluate, isCommandName, loggableFields, validateRule } from './rules.js';
 
 const ENABLED = { enabled: true };
 const VALID_REPORT = {
@@ -136,3 +136,13 @@ function withoutVersion<T extends { version: number }>(rule: T): Omit<T, 'versio
   const { version: _version, ...rest } = rule;
   return rest;
 }
+
+describe('loggableFields', () => {
+  it('keeps the fields a rule defines and reports an invented key by its parent only', () => {
+    expect(loggableFields(['replyMessage', 'mirror', 'secret-key-name', ROOT_FIELD])).toEqual([
+      'replyMessage',
+      'mirror',
+      ROOT_FIELD,
+    ]);
+  });
+});
