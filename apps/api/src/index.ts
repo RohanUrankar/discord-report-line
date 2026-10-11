@@ -5,7 +5,7 @@ import { createRequestPool } from './adapters/pg/pool.js';
 import { PgStatusReader } from './adapters/pg/pgStatusReader.js';
 import { SystemClock } from './adapters/systemClock.js';
 import { InteractionController } from './app/interactions.js';
-import { composeWorker } from './compose.js';
+import { composeAuth, composeWorker } from './compose.js';
 import {
   ConfigError,
   loadServerConfig,
@@ -87,7 +87,17 @@ function startServerWithWorker(config: ServerConfig): void {
       worker.nudge();
     },
   });
-  const server = createServer({ controller, logger }).listen(config.PORT, () => {
+  const { auth, cookie } = composeAuth(config, requestPool, clock);
+  if (!config.SESSION_COOKIE_SECURE) {
+    logger.warn({}, 'config.session_cookie_not_secure'); // acceptable on http://localhost only
+  }
+  const server = createServer({
+    controller,
+    logger,
+    auth,
+    cookie,
+    trustProxyHops: config.TRUST_PROXY_HOPS,
+  }).listen(config.PORT, () => {
     logger.info({ port: config.PORT }, 'server.listening');
   });
   worker.start();

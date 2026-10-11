@@ -46,6 +46,20 @@ const DEFAULT_WORKER_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS = 15_000;
 const CALLS_PER_PASS = 3;
 const WEBHOOK_KEY_BYTES = 32;
 
+// Dashboard sessions (ADR-0003). The cookie is Secure unless an operator opts out explicitly.
+const DEFAULT_SESSION_TTL_MS = 8 * 60 * 60_000;
+const MIN_SESSION_SECRET_LENGTH = 32;
+const MIN_ADMIN_PASSWORD_LENGTH = 12;
+const MAX_PASSWORD_LENGTH = 256;
+const MAX_TRUST_PROXY_HOPS = 10;
+const cookieSecure = z.preprocess(
+  unlessEmpty,
+  z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+);
+
 const databaseUrl = z.string().regex(/^postgres(ql)?:\/\/\S+$/);
 
 /** AES-256 needs exactly 32 bytes; the env value is those bytes in base64. */
@@ -127,6 +141,13 @@ const ServerEnv = z
       unlessEmpty,
       positiveInt.default(DEFAULT_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS),
     ),
+    SESSION_SECRET: z.preprocess(unlessEmpty, z.string().min(MIN_SESSION_SECRET_LENGTH)),
+    SESSION_TTL_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_SESSION_TTL_MS)),
+    SESSION_COOKIE_SECURE: cookieSecure,
+    TRUST_PROXY_HOPS: z.preprocess(
+      unlessEmpty,
+      z.coerce.number().int().min(0).max(MAX_TRUST_PROXY_HOPS).default(0),
+    ),
     ...workerShape,
   })
   .refine((env) => env.RECORD_TIMEOUT_MS + env.STATUS_TIMEOUT_MS <= REQUEST_BUDGET_MS, {
@@ -151,6 +172,16 @@ const WebhookScriptEnv = z.object({
   SLACK_WEBHOOK_URL_PREFIX: workerShape.SLACK_WEBHOOK_URL_PREFIX,
 });
 
+/** For `scripts/seed-admin.ts`: the database and the throwaway admin's credentials. */
+const SeedAdminEnv = z.object({
+  DATABASE_URL: z.preprocess(unlessEmpty, databaseUrl),
+  ADMIN_EMAIL: z.preprocess(unlessEmpty, z.email().max(254)),
+  ADMIN_PASSWORD: z.preprocess(
+    unlessEmpty,
+    z.string().min(MIN_ADMIN_PASSWORD_LENGTH).max(MAX_PASSWORD_LENGTH),
+  ),
+});
+
 const MigrateEnv = z.object({
   DATABASE_URL: z.preprocess(unlessEmpty, databaseUrl),
 });
@@ -167,6 +198,7 @@ export type ServerConfig = z.infer<typeof ServerEnv>;
 export type WorkerConfig = z.infer<typeof WorkerEnv>;
 export type WebhookScriptConfig = z.infer<typeof WebhookScriptEnv>;
 export type RegisterConfig = z.infer<typeof RegisterEnv>;
+export type SeedAdminConfig = z.infer<typeof SeedAdminEnv>;
 export type MigrateConfig = z.infer<typeof MigrateEnv>;
 export type WorkerMode = (typeof WORKER_MODES)[number];
 
@@ -209,6 +241,11 @@ export function loadWorkerMode(env: Env = process.env): WorkerMode {
 /** For `scripts/set-mirror-webhook.ts`. */
 export function loadWebhookScriptConfig(env: Env = process.env): WebhookScriptConfig {
   return parseEnv(WebhookScriptEnv, env);
+}
+
+/** For `scripts/seed-admin.ts`. */
+export function loadSeedAdminConfig(env: Env = process.env): SeedAdminConfig {
+  return parseEnv(SeedAdminEnv, env);
 }
 
 /** For `scripts/migrate.ts`, which needs only the database. */

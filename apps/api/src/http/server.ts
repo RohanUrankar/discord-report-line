@@ -1,7 +1,10 @@
-import express, { type Express } from 'express';
+import express, { Router, type Express, type RequestHandler } from 'express';
 
+import type { AuthService } from '../app/auth.js';
 import type { InteractionHandler } from '../app/interactions.js';
 import type { Logger } from '../ports/logger.js';
+import { authRouter, type AuthHttpDeps } from './authRoutes.js';
+import type { SessionCookieSettings } from './sessionCookie.js';
 import {
   contextOf,
   errorHandler,
@@ -10,21 +13,49 @@ import {
   requestContext,
 } from './middleware.js';
 
+/** Authenticated responses must never be stored by a browser or a shared cache (security-secrets). */
+const noStore: RequestHandler = (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+};
+
+function apiRouter(deps: AuthHttpDeps): Router {
+  const router = Router();
+  router.use('/auth', authRouter(deps));
+  return router;
+}
+
 export interface ServerDeps {
   controller: InteractionHandler;
   logger: Logger;
+  auth: AuthService;
+  cookie: SessionCookieSettings;
+  /** Reverse proxies in front of the app (0 = none), so `req.ip`, which the login throttle keys on, is real. */
+  trustProxyHops?: number;
 }
+
+/** Dashboard request bodies are small forms; anything bigger is refused with 413. */
+const MAX_API_BODY_BYTES = 16 * 1024;
 
 /**
  * Builds the Express app without listening, so tests can drive it with Supertest (backend-guidelines).
  * This is the composition point for the request path (DESIGN §8.2).
  *
- * Body-parser rule (CLAUDE.md): the raw parser is mounted on `/interactions` only. No global JSON parser
- * exists yet; when the dashboard API adds one it must be mounted on `/api` after this route.
+ * Body-parser rule (CLAUDE.md): the raw parser is mounted on `/interactions` only. The JSON parser is mounted
+ * on `/api` only, never globally, so it can never touch the signed bytes. No CORS: the SPA is same-origin.
  */
-export function createServer({ controller, logger }: ServerDeps): Express {
+export function createServer({
+  controller,
+  logger,
+  auth,
+  cookie,
+  trustProxyHops = 0,
+}: ServerDeps): Express {
   const app = express();
   app.disable('x-powered-by');
+  if (trustProxyHops > 0) {
+    app.set('trust proxy', trustProxyHops);
+  }
   app.use(requestContext(logger));
 
   app.get('/healthz', (_req, res) => {
@@ -48,6 +79,13 @@ export function createServer({ controller, logger }: ServerDeps): Express {
     }
     res.status(result.status).end();
   });
+
+  app.use(
+    '/api',
+    noStore,
+    express.json({ limit: MAX_API_BODY_BYTES }),
+    apiRouter({ auth, cookie, logger }),
+  );
 
   app.use(notFoundHandler);
   app.use(errorHandler(logger));

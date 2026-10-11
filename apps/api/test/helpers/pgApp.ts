@@ -7,6 +7,7 @@ import { InteractionController } from '../../src/app/interactions.js';
 import { createLogger } from '../../src/http/middleware.js';
 import { createServer } from '../../src/http/server.js';
 import type { LedgerService } from '../../src/ports/ledger.js';
+import { inertAuth } from './authFakes.js';
 import { LogSink } from './logging.js';
 import { generateTestKeypair, signRequest, unixSeconds } from './signing.js';
 
@@ -41,7 +42,7 @@ export function wire(
     ledger: delayed(new PgLedger(pool), options.recordDelayMs),
     statusReader: new PgStatusReader(pool, clock),
   });
-  const app = createServer({ controller, logger: createLogger('debug', sink) });
+  const app = createServer({ controller, logger: createLogger('debug', sink), ...inertAuth() });
   const send = (payload: unknown) => {
     const body = JSON.stringify(payload);
     return request(app)

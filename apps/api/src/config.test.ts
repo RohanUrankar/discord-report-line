@@ -4,6 +4,7 @@ import {
   ConfigError,
   loadMigrateConfig,
   loadRegisterConfig,
+  loadSeedAdminConfig,
   loadServerConfig,
   loadWebhookScriptConfig,
   loadWorkerConfig,
@@ -19,7 +20,8 @@ const WORKER_REQUIRED = {
   DISCORD_BOT_TOKEN: 'placeholder-bot-token',
   WEBHOOK_ENC_KEY: ENC_KEY,
 };
-const REQUIRED = { DISCORD_PUBLIC_KEY: PUBLIC_KEY, ...WORKER_REQUIRED };
+const SESSION_SECRET = 's'.repeat(32);
+const REQUIRED = { DISCORD_PUBLIC_KEY: PUBLIC_KEY, SESSION_SECRET, ...WORKER_REQUIRED };
 
 describe('loadServerConfig', () => {
   it('applies defaults when only the required variables are set', () => {
@@ -36,6 +38,10 @@ describe('loadServerConfig', () => {
       DB_CONNECTION_TIMEOUT_MS: 1000,
       DB_STATEMENT_TIMEOUT_MS: 1500,
       DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: 5000,
+      SESSION_SECRET,
+      SESSION_TTL_MS: 28_800_000,
+      SESSION_COOKIE_SECURE: true,
+      TRUST_PROXY_HOPS: 0,
       DISCORD_APP_ID: '123456789012345678',
       DISCORD_BOT_TOKEN: 'placeholder-bot-token',
       WEBHOOK_ENC_KEY: ENC_KEY,
@@ -62,7 +68,7 @@ describe('loadServerConfig', () => {
     expect(() => loadServerConfig({})).toThrow(/DISCORD_PUBLIC_KEY.*DATABASE_URL/);
   });
 
-  it.each(['DISCORD_APP_ID', 'DISCORD_BOT_TOKEN', 'WEBHOOK_ENC_KEY'])(
+  it.each(['DISCORD_APP_ID', 'DISCORD_BOT_TOKEN', 'WEBHOOK_ENC_KEY', 'SESSION_SECRET'])(
     'refuses to start without %s',
     (name) => {
       expect(() => loadServerConfig({ ...REQUIRED, [name]: undefined })).toThrow(name);
@@ -126,6 +132,66 @@ describe('loadServerConfig', () => {
       /DISCORD_PUBLIC_KEY/,
     );
   });
+});
+
+describe('dashboard session settings', () => {
+  it('WHEN SESSION_COOKIE_SECURE is unset or empty THE SYSTEM SHALL default to a Secure cookie', () => {
+    expect(loadServerConfig(REQUIRED).SESSION_COOKIE_SECURE).toBe(true);
+    expect(loadServerConfig({ ...REQUIRED, SESSION_COOKIE_SECURE: '' }).SESSION_COOKIE_SECURE).toBe(
+      true,
+    );
+  });
+
+  it('WHEN SESSION_COOKIE_SECURE is exactly "false" THE SYSTEM SHALL turn Secure off, and nothing else does', () => {
+    expect(
+      loadServerConfig({ ...REQUIRED, SESSION_COOKIE_SECURE: 'false' }).SESSION_COOKIE_SECURE,
+    ).toBe(false);
+    for (const value of ['0', 'no', 'FALSE', 'off']) {
+      expect(() => loadServerConfig({ ...REQUIRED, SESSION_COOKIE_SECURE: value })).toThrow(
+        /SESSION_COOKIE_SECURE/,
+      );
+    }
+  });
+
+  it('WHEN SESSION_SECRET is shorter than 32 characters THE SYSTEM SHALL refuse to start, naming only the variable', () => {
+    const attempt = () => loadServerConfig({ ...REQUIRED, SESSION_SECRET: 'too-short-secret' });
+    expect(attempt).toThrow(/SESSION_SECRET/);
+    expect(attempt).not.toThrow(/too-short-secret/);
+  });
+
+  it.each(['-1', '11', 'many'])(
+    'WHEN TRUST_PROXY_HOPS is %s THE SYSTEM SHALL refuse it',
+    (value) => {
+      expect(() => loadServerConfig({ ...REQUIRED, TRUST_PROXY_HOPS: value })).toThrow(
+        /TRUST_PROXY_HOPS/,
+      );
+    },
+  );
+});
+
+describe('loadSeedAdminConfig', () => {
+  const SEED = {
+    DATABASE_URL,
+    ADMIN_EMAIL: 'admin@example.test',
+    ADMIN_PASSWORD: 'twelve-chars-ok',
+  };
+
+  it('WHEN the credentials are present THE SYSTEM SHALL accept them', () => {
+    expect(loadSeedAdminConfig(SEED).ADMIN_EMAIL).toBe('admin@example.test');
+  });
+
+  it('WHEN the password is shorter than 12 characters THE SYSTEM SHALL refuse, without echoing it', () => {
+    const attempt = () => loadSeedAdminConfig({ ...SEED, ADMIN_PASSWORD: 'short' });
+    expect(attempt).toThrow(/ADMIN_PASSWORD/);
+    expect(attempt).not.toThrow(/short/);
+  });
+
+  it.each(['ADMIN_EMAIL', 'ADMIN_PASSWORD'])(
+    'WHEN %s is missing THE SYSTEM SHALL refuse',
+    (name) => {
+      expect(() => loadSeedAdminConfig({ ...SEED, [name]: undefined })).toThrow(name);
+    },
+  );
 });
 
 describe('loadRegisterConfig', () => {

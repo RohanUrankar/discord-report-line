@@ -7,6 +7,7 @@ import express, {
   type Handler,
   type Request,
   type RequestHandler,
+  type Response,
 } from 'express';
 import { pino } from 'pino';
 
@@ -107,9 +108,14 @@ export function rawInteractionBody(): Handler {
 }
 
 export const notFoundHandler: RequestHandler = (req, res) => {
-  const { requestId } = contextOf(req, noopLogger);
-  res.status(404).json(errorBody(ErrorCode.NOT_FOUND, requestId));
+  sendApiError(req, res, 404, ErrorCode.NOT_FOUND);
 };
+
+/** The one way an `/api` handler or middleware answers with an error: shared shape, message and request id. */
+export function sendApiError(req: Request, res: Response, status: number, code: ErrorCode): void {
+  const { requestId } = contextOf(req, noopLogger);
+  res.status(status).json(errorBody(code, requestId));
+}
 
 /**
  * The single error handler. Logs once with the request id, never returns internals.
@@ -127,6 +133,12 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
     if (req.path === '/interactions' && clientStatus !== undefined) {
       log.warn({ logType: 'security', status: clientStatus }, 'interaction.body_rejected');
       res.status(clientStatus === 413 ? 413 : 401).end();
+      return;
+    }
+    if (req.path.startsWith('/api') && clientStatus !== undefined) {
+      // A body the JSON parser refused (malformed, wrong type, too large): the client's mistake, not ours.
+      log.warn({ status: clientStatus }, 'http.api_body_rejected');
+      sendApiError(req, res, clientStatus === 413 ? 413 : 400, ErrorCode.VALIDATION_FAILED);
       return;
     }
     log.error(describeError(error), 'http.unhandled_error');

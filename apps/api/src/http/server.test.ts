@@ -18,6 +18,7 @@ import {
   pingPayload,
   reportPayload,
 } from '../../test/helpers/payloads.js';
+import { inertAuth } from '../../test/helpers/authFakes.js';
 import { LogSink } from '../../test/helpers/logging.js';
 import {
   generateTestKeypair,
@@ -85,7 +86,7 @@ function harness(
     statusReader: reader,
     ...(onJobEnqueued ? { onJobEnqueued } : {}),
   });
-  const app = createServer({ controller, logger });
+  const app = createServer({ controller, logger, ...inertAuth() });
 
   const post = (
     body: string | Buffer,
@@ -660,7 +661,11 @@ describe('server wiring', () => {
     const throwing: InteractionHandler = {
       handle: () => Promise.reject(new Error('relation "interaction" does not exist')),
     };
-    const app = createServer({ controller: throwing, logger: createLogger('debug', sink) });
+    const app = createServer({
+      controller: throwing,
+      logger: createLogger('debug', sink),
+      ...inertAuth(),
+    });
 
     const res = await request(app)
       .post('/interactions')

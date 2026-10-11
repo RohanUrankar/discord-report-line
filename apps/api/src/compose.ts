@@ -1,15 +1,22 @@
 import type pg from 'pg';
 
+import { Argon2PasswordHasher } from './adapters/argon2PasswordHasher.js';
 import { AesGcmWebhookCipher } from './adapters/aesGcmWebhookCipher.js';
 import { DiscordHttpClient } from './adapters/discordHttp.js';
+import { NodeSessionCrypto } from './adapters/nodeSessionCrypto.js';
+import { PgAdminRepository } from './adapters/pg/pgAdminRepository.js';
 import { PgJobRepository } from './adapters/pg/pgJobRepository.js';
+import { PgSessionRepository } from './adapters/pg/pgSessionRepository.js';
 import { createWorkerPool } from './adapters/pg/pool.js';
 import { PgWorkerHeartbeat } from './adapters/pg/pgWorkerHeartbeat.js';
 import { SlackHttpClient } from './adapters/slackHttp.js';
 import { SystemClock } from './adapters/systemClock.js';
+import { AuthService } from './app/auth.js';
 import { ReportJobRunner } from './app/reportJobRunner.js';
 import { Worker } from './app/worker.js';
-import type { WorkerConfig } from './config.js';
+import type { ServerConfig, WorkerConfig } from './config.js';
+import type { SessionCookieSettings } from './http/sessionCookie.js';
+import type { Clock } from './ports/clock.js';
 import type { Logger } from './ports/logger.js';
 
 export interface ComposedWorker {
@@ -68,4 +75,30 @@ export function composeWorker(config: WorkerConfig, logger: Logger): ComposedWor
     },
   );
   return { worker, pool };
+}
+
+export interface AuthWiring {
+  auth: AuthService;
+  cookie: SessionCookieSettings;
+}
+
+/** The dashboard's sign-in wiring (ADR-0003), on the request pool. */
+export function composeAuth(
+  config: Pick<ServerConfig, 'SESSION_SECRET' | 'SESSION_TTL_MS' | 'SESSION_COOKIE_SECURE'>,
+  pool: pg.Pool,
+  clock: Clock,
+): AuthWiring {
+  return {
+    auth: new AuthService(
+      {
+        admins: new PgAdminRepository(pool),
+        sessions: new PgSessionRepository(pool),
+        hasher: new Argon2PasswordHasher(),
+        sessionCrypto: new NodeSessionCrypto(config.SESSION_SECRET),
+        clock,
+      },
+      { sessionTtlMs: config.SESSION_TTL_MS },
+    ),
+    cookie: { secure: config.SESSION_COOKIE_SECURE, ttlMs: config.SESSION_TTL_MS },
+  };
 }
