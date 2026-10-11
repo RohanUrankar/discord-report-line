@@ -47,6 +47,7 @@ describe('migrations', () => {
       '001_init.sql',
       '002_job_payload_heartbeat.sql',
       '003_admin_guild_single_owner.sql',
+      '004_report_click_actions.sql',
     ]);
   });
 
@@ -183,9 +184,14 @@ describe('enum drift (DESIGN §8.3: one list, two enforcements)', () => {
     }
   });
 
+  // Structural checks that are not enum lists (004: only click rows carry a report_id).
+  const structural = new Set(['action_report_id_check']);
+
   it('SHALL have no CHECK constraint this test does not cover', async () => {
     const definitions = await constraintDefinitions();
-    const uncovered = [...definitions.keys()].filter((name) => !(name in expectedByConstraint));
+    const uncovered = [...definitions.keys()].filter(
+      (name) => !(name in expectedByConstraint) && !structural.has(name),
+    );
     expect(uncovered).toEqual([]);
   });
 });

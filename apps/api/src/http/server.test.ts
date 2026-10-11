@@ -6,6 +6,7 @@ import { InteractionController, type InteractionHandler } from '../app/interacti
 import { ACTION_SUMMARIES, MESSAGES } from '../domain/messages.js';
 import type { StatusCounts } from '../domain/status.js';
 import type { LedgerService, RecordInput, RecordOutcome } from '../ports/ledger.js';
+import type { ClickOutcome, ReportActionStore, ReportClick } from '../ports/reportActions.js';
 import type { RuleReader, StoredRuleRow } from '../ports/rules.js';
 import type { StatusReader } from '../ports/status.js';
 import {
@@ -66,6 +67,14 @@ class FakeRuleReader implements RuleReader {
   }
 }
 
+class FakeReportActions implements ReportActionStore {
+  public readonly clicks: ReportClick[] = [];
+  public applyClick(click: ReportClick): Promise<ClickOutcome> {
+    this.clicks.push(click);
+    return Promise.resolve({ kind: 'not_found' });
+  }
+}
+
 class FakeLedger implements LedgerService {
   public readonly inputs: RecordInput[] = [];
   public constructor(private readonly behaviour: () => Promise<RecordOutcome>) {}
@@ -95,6 +104,7 @@ function harness(
     clock: { nowMs: () => NOW_MS },
     ledger,
     rules,
+    reportActions: new FakeReportActions(),
     statusReader: reader,
     ...(onJobEnqueued ? { onJobEnqueued } : {}),
   });

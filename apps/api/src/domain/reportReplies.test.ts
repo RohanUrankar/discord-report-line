@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { MESSAGES } from './messages.js';
 import { reportButtons } from './reportButtons.js';
-import { reportFallbackBody, reportResultBody } from './reportReplies.js';
+import { reportFallbackBody, reportResultBody, reportStateResponse } from './reportReplies.js';
 
 const USER_ID = '1000000000000000001';
 const REPORT_ID = '1300000000000000001';
@@ -106,5 +106,42 @@ describe('reportFallbackBody (bot-token channel post)', () => {
       text: '',
     });
     expect(body.content).toContain('(ref `1ab`)');
+  });
+});
+
+describe('reportStateResponse (type 7)', () => {
+  const view = {
+    state: 'acknowledged' as const,
+    replyMessage: 'Logged.',
+    mirrorFailed: true,
+    acknowledgedBy: USER_ID,
+    escalatedBy: null,
+  };
+
+  it('keeps the reply text, says who acted, drops the used button and disables mentions', () => {
+    const response = reportStateResponse(REPORT_ID, view);
+    expect(response).toEqual({
+      type: 7,
+      data: {
+        content: `Logged.\n${MESSAGES.mirrorFailed}\n✅ Acknowledged by <@${USER_ID}>`,
+        allowed_mentions: { parse: [] },
+        components: [reportButtons(REPORT_ID, 'acknowledged')],
+      },
+    });
+  });
+
+  it('clears every button once escalated and never echoes a non-snowflake user id', () => {
+    const response = reportStateResponse(REPORT_ID, {
+      ...view,
+      state: 'escalated',
+      escalatedBy: '@everyone',
+    });
+    expect(response).toMatchObject({ data: { components: [] } });
+    expect(JSON.stringify(response)).not.toContain('@everyone');
+  });
+
+  it('cuts content at Discord’s limit', () => {
+    const response = reportStateResponse(REPORT_ID, { ...view, replyMessage: 'x'.repeat(5000) });
+    expect(response.type === 7 && response.data.content.length).toBeLessThanOrEqual(2000);
   });
 });
