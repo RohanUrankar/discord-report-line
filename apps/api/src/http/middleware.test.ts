@@ -38,6 +38,17 @@ describe('log redaction (ADR-0005)', () => {
     );
   });
 
+  it.each([
+    ['a job row', { job: { id: 'j1', interaction_token: SECRET } }],
+    ['a ledger input', { input: { job: { kind: 'report', interactionToken: SECRET } } }],
+  ])('redacts the interaction token inside %s', (_name, fields) => {
+    const sink = new LogSink();
+
+    createLogger('info', sink).info(fields, 'test.event');
+
+    expect(sink.text()).not.toContain(SECRET);
+  });
+
   it('redacts a token carried on a child logger binding', () => {
     const sink = new LogSink();
     const child = createLogger('info', sink).child({ interaction_id: '1', token: SECRET });

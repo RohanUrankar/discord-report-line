@@ -22,7 +22,8 @@ const MAX_ERROR_MESSAGE_LENGTH = 200;
 /**
  * Fields that must never reach a log line (ADR-0005, CLAUDE.md). The interaction token is a 15-minute
  * capability; the rest are credentials. pino wildcards match one level, so top-level and nested forms are
- * both listed. Pinned by middleware.test.ts.
+ * both listed; the two-level forms cover a whole job row or ledger input logged by mistake
+ * (`job.interaction_token`, `input.job.interactionToken`). Pinned by middleware.test.ts.
  */
 export const REDACT_PATHS = [
   'token',
@@ -31,6 +32,9 @@ export const REDACT_PATHS = [
   '*.token',
   '*.interaction_token',
   '*.interactionToken',
+  '*.*.token',
+  '*.*.interaction_token',
+  '*.*.interactionToken',
   'authorization',
   '*.authorization',
   'req.headers.authorization',
