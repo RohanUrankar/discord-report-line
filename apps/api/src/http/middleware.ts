@@ -112,9 +112,15 @@ export const notFoundHandler: RequestHandler = (req, res) => {
 };
 
 /** The one way an `/api` handler or middleware answers with an error: shared shape, message and request id. */
-export function sendApiError(req: Request, res: Response, status: number, code: ErrorCode): void {
+export function sendApiError(
+  req: Request,
+  res: Response,
+  status: number,
+  code: ErrorCode,
+  fields?: readonly string[],
+): void {
   const { requestId } = contextOf(req, noopLogger);
-  res.status(status).json(errorBody(code, requestId));
+  res.status(status).json(errorBody(code, requestId, fields));
 }
 
 /**
@@ -146,8 +152,15 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
   };
 }
 
-function errorBody(code: ErrorCode, requestId: string): ApiErrorBody {
-  return { error: { code, message: errorMessages[code], requestId } };
+/** `fields` are field PATHS only (VALIDATION_FAILED); a value an admin typed never goes into an error. */
+function errorBody(code: ErrorCode, requestId: string, fields?: readonly string[]): ApiErrorBody {
+  const base = { code, message: errorMessages[code], requestId };
+  return {
+    error:
+      fields === undefined || fields.length === 0
+        ? base
+        : { ...base, details: { fields: [...fields] } },
+  };
 }
 
 /** body-parser errors carry the HTTP status the parser chose (413, 415, 400...). */

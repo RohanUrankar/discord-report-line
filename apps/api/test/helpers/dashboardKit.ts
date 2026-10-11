@@ -1,4 +1,4 @@
-import type { SessionInfo } from '@report-line/shared';
+import { CSRF_HEADER, type SessionInfo } from '@report-line/shared';
 import type pg from 'pg';
 import request, { type Response, type Test } from 'supertest';
 
@@ -6,13 +6,14 @@ import { NodeSessionCrypto } from '../../src/adapters/nodeSessionCrypto.js';
 import { PgAdminRepository } from '../../src/adapters/pg/pgAdminRepository.js';
 import { PgSessionRepository } from '../../src/adapters/pg/pgSessionRepository.js';
 import { AuthService } from '../../src/app/auth.js';
-import { composeDashboard } from '../../src/compose.js';
+import { composeDashboard, composeGuildConfig } from '../../src/compose.js';
 import { createLogger } from '../../src/http/middleware.js';
 import { createServer } from '../../src/http/server.js';
 import {
   ManualClock,
   PlainHasher,
   SECURE_COOKIE,
+  TEST_GUILD_CONFIG,
   TEST_SESSION_SECRET,
   TEST_TTL_MS,
 } from './authFakes.js';
@@ -25,6 +26,8 @@ export interface Admin {
   id: string;
   /** The `Cookie` header value of a live session. */
   cookie: string;
+  /** The value the server expects in the CSRF header of a change. */
+  csrfToken: string;
 }
 
 export interface DashboardKit {
@@ -35,6 +38,14 @@ export interface DashboardKit {
   /** The test helper for the connect flow (a later step): links an admin to a guild directly. */
   manage(admin: Admin, guildId: string): Promise<void>;
   get(admin: Admin | undefined, path: string, requestId?: string): Test;
+  /** A change (POST or PUT) with a session cookie and, unless told otherwise, the right CSRF token. */
+  send(
+    method: 'post' | 'put',
+    admin: Admin | undefined,
+    path: string,
+    body: unknown,
+    csrf?: string | null,
+  ): Test;
 }
 
 /** The real dashboard stack (Postgres repositories, sessions, tenant guard) around the given pool. */
@@ -57,6 +68,7 @@ export function makeDashboardKit(pool: pg.Pool): DashboardKit {
     logger: createLogger('debug', logs),
     auth,
     dashboard: composeDashboard(pool),
+    guildConfig: composeGuildConfig(TEST_GUILD_CONFIG, pool),
     cookie: SECURE_COOKIE,
   });
 
@@ -66,7 +78,7 @@ export function makeDashboardKit(pool: pg.Pool): DashboardKit {
     async signIn(email) {
       const { id } = await admins.upsert(email, await hasher.hash(PASSWORD));
       const login = await request(app).post('/api/auth/login').send({ email, password: PASSWORD });
-      return { id, cookie: cookieOf(login) };
+      return { id, cookie: cookieOf(login), csrfToken: csrfOf(login) };
     },
     async manage(admin, guildId) {
       await pool.query('INSERT INTO guild (id) VALUES ($1) ON CONFLICT (id) DO NOTHING', [guildId]);
@@ -74,6 +86,17 @@ export function makeDashboardKit(pool: pg.Pool): DashboardKit {
         admin.id,
         guildId,
       ]);
+    },
+    send(method, admin, path, body, csrf) {
+      let call = request(app)[method](path);
+      if (admin !== undefined) {
+        call = call.set('Cookie', admin.cookie);
+        const token = csrf === undefined ? admin.csrfToken : csrf;
+        if (typeof token === 'string') {
+          call = call.set(CSRF_HEADER, token);
+        }
+      }
+      return call.send(body as object);
     },
     get(admin, path, requestId) {
       let call = request(app).get(path);
@@ -83,6 +106,10 @@ export function makeDashboardKit(pool: pg.Pool): DashboardKit {
       return requestId === undefined ? call : call.set('X-Request-Id', requestId);
     },
   };
+}
+
+function csrfOf(res: Response): string {
+  return (res.body as SessionInfo).csrfToken;
 }
 
 function cookieOf(res: Response): string {

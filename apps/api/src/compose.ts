@@ -4,6 +4,7 @@ import { Argon2PasswordHasher } from './adapters/argon2PasswordHasher.js';
 import { AesGcmWebhookCipher } from './adapters/aesGcmWebhookCipher.js';
 import { DiscordHttpClient } from './adapters/discordHttp.js';
 import { NodeSessionCrypto } from './adapters/nodeSessionCrypto.js';
+import { PgGuildConfigStore } from './adapters/pg/pgGuildConfigStore.js';
 import { PgDashboardReader } from './adapters/pg/pgDashboardReader.js';
 import { PgAdminRepository } from './adapters/pg/pgAdminRepository.js';
 import { PgJobRepository } from './adapters/pg/pgJobRepository.js';
@@ -14,6 +15,7 @@ import { SlackHttpClient } from './adapters/slackHttp.js';
 import { SystemClock } from './adapters/systemClock.js';
 import { AuthService } from './app/auth.js';
 import { DashboardService } from './app/dashboard.js';
+import { GuildConfigService } from './app/guildConfig.js';
 import { ReportJobRunner } from './app/reportJobRunner.js';
 import { Worker } from './app/worker.js';
 import type { ServerConfig, WorkerConfig } from './config.js';
@@ -108,4 +110,16 @@ export function composeAuth(
 /** The dashboard's read side (tenant-scoped log and server list), on the request pool. */
 export function composeDashboard(pool: pg.Pool): DashboardService {
   return new DashboardService(new PgDashboardReader(pool));
+}
+
+/** The dashboard's write side (connect a server, settings, rules), on the request pool. */
+export function composeGuildConfig(
+  config: Pick<ServerConfig, 'WEBHOOK_ENC_KEY' | 'SLACK_WEBHOOK_URL_PREFIX'>,
+  pool: pg.Pool,
+): GuildConfigService {
+  return new GuildConfigService(
+    new PgGuildConfigStore(pool),
+    new AesGcmWebhookCipher(config.WEBHOOK_ENC_KEY),
+    { allowedWebhookPrefix: config.SLACK_WEBHOOK_URL_PREFIX },
+  );
 }

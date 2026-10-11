@@ -2,6 +2,7 @@ import express, { Router, type Express, type RequestHandler } from 'express';
 
 import type { AuthService } from '../app/auth.js';
 import type { DashboardService } from '../app/dashboard.js';
+import type { GuildConfigService } from '../app/guildConfig.js';
 import type { InteractionHandler } from '../app/interactions.js';
 import type { Logger } from '../ports/logger.js';
 import { authRouter } from './authRoutes.js';
@@ -33,6 +34,7 @@ export interface ServerDeps {
   logger: Logger;
   auth: AuthService;
   dashboard: DashboardService;
+  guildConfig: GuildConfigService;
   cookie: SessionCookieSettings;
   /** Reverse proxies in front of the app (0 = none), so `req.ip`, which the login throttle keys on, is real. */
   trustProxyHops?: number;
@@ -53,6 +55,7 @@ export function createServer({
   logger,
   auth,
   dashboard,
+  guildConfig,
   cookie,
   trustProxyHops = 0,
 }: ServerDeps): Express {
@@ -89,7 +92,7 @@ export function createServer({
     '/api',
     noStore,
     express.json({ limit: MAX_API_BODY_BYTES }),
-    apiRouter({ auth, cookie, logger, dashboard }),
+    apiRouter({ auth, cookie, logger, dashboard, guildConfig }),
   );
 
   app.use(notFoundHandler);

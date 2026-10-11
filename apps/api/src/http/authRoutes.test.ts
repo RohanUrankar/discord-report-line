@@ -9,6 +9,7 @@ import {
   makeAuthKit,
   TEST_TTL_MS,
   unusedDashboard,
+  unusedGuildConfig,
   type AuthKit,
 } from '../../test/helpers/authFakes.js';
 import { LogSink } from '../../test/helpers/logging.js';
@@ -35,6 +36,7 @@ async function setup(options: { secure?: boolean } = {}): Promise<{
     logger: createLogger('debug', sink),
     auth: kit.auth,
     dashboard: unusedDashboard(),
+    guildConfig: unusedGuildConfig(),
     cookie,
   });
   return { kit, sink, app };

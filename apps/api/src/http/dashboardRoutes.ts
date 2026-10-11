@@ -2,17 +2,20 @@ import { ErrorCode, ListInteractionsQuery, Snowflake } from '@report-line/shared
 import { Router } from 'express';
 
 import type { DashboardService } from '../app/dashboard.js';
-import { adminOf, requireSession, type AuthHttpDeps } from './authRoutes.js';
+import { adminOf, requireCsrf, requireSession, type AuthHttpDeps } from './authRoutes.js';
+import { connectGuild, guildConfigRouter, type GuildConfigHttpDeps } from './guildConfigRoutes.js';
 import { sendApiError } from './middleware.js';
 import { guildOf, tenantGuard } from './tenantGuard.js';
 
-export interface DashboardHttpDeps extends AuthHttpDeps {
+export interface DashboardHttpDeps extends AuthHttpDeps, GuildConfigHttpDeps {
   dashboard: DashboardService;
 }
 
 /** Everything under one managed guild. Mounted behind `requireSession` and `tenantGuard`. */
-function guildRouter({ dashboard }: DashboardHttpDeps): Router {
+function guildRouter(deps: DashboardHttpDeps): Router {
+  const { dashboard } = deps;
   const router = Router({ mergeParams: true });
+  router.use(guildConfigRouter(deps));
 
   router.get('/interactions', async (req, res) => {
     const query = ListInteractionsQuery.safeParse(req.query);
@@ -48,11 +51,13 @@ function guildRouter({ dashboard }: DashboardHttpDeps): Router {
 export function dashboardRouter(deps: DashboardHttpDeps): Router {
   const { dashboard, logger } = deps;
   const router = Router();
-  router.use('/guilds', requireSession(deps));
+  // Session, then CSRF (a no-op for GET), then the tenant check: a forged request is refused before any lookup.
+  router.use('/guilds', requireSession(deps), requireCsrf(deps));
 
   router.get('/guilds', async (req, res) => {
     res.status(200).json(await dashboard.listGuilds(adminOf(req).adminId));
   });
+  router.post('/guilds', connectGuild(deps));
   router.use('/guilds/:guildId', tenantGuard(dashboard, logger), guildRouter(deps));
   return router;
 }

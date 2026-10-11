@@ -7,8 +7,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { PgAdminRepository } from '../adapters/pg/pgAdminRepository.js';
 import { Argon2PasswordHasher } from '../adapters/argon2PasswordHasher.js';
 import { seedAdmin } from '../app/seedAdmin.js';
-import { composeAuth, composeDashboard } from '../compose.js';
-import { ManualClock, TEST_SESSION_SECRET, TEST_TTL_MS } from '../../test/helpers/authFakes.js';
+import { composeAuth, composeDashboard, composeGuildConfig } from '../compose.js';
+import {
+  ManualClock,
+  TEST_GUILD_CONFIG,
+  TEST_SESSION_SECRET,
+  TEST_TTL_MS,
+} from '../../test/helpers/authFakes.js';
 import { truncateAll, useTestDatabase } from '../../test/helpers/db.js';
 import { createLogger } from './middleware.js';
 import { createServer } from './server.js';
@@ -34,6 +39,7 @@ function app(clock: ManualClock): ReturnType<typeof createServer> {
     logger: createLogger('silent', new LogSink()),
     auth,
     dashboard: composeDashboard(getPool()),
+    guildConfig: composeGuildConfig(TEST_GUILD_CONFIG, getPool()),
     cookie,
   });
 }

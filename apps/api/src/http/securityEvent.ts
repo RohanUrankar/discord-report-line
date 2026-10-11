@@ -12,7 +12,18 @@ export function securityEvent(
   logger: Logger,
   level: 'info' | 'warn',
   event: string,
-  fields: { result: 'success' | 'failed'; reason?: string; adminId?: string; guildId?: string },
+  fields: {
+    result: 'success' | 'failed';
+    reason?: string;
+    adminId?: string;
+    guildId?: string;
+    /** A rule's command name (a fixed set, never free text). */
+    command?: string;
+    /** Names of the settings that changed, never their values. */
+    changed?: readonly string[];
+    /** Field paths a rejected change complained about, never values. */
+    fields?: readonly string[];
+  },
 ): void {
   contextOf(req, logger).log[level]({ logType: 'security', event, src: req.ip, ...fields }, event);
 }

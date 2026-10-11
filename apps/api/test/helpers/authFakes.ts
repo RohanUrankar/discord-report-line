@@ -1,6 +1,7 @@
 import { NodeSessionCrypto } from '../../src/adapters/nodeSessionCrypto.js';
 import { AuthService } from '../../src/app/auth.js';
 import { DashboardService } from '../../src/app/dashboard.js';
+import { GuildConfigService } from '../../src/app/guildConfig.js';
 import type { SessionCookieSettings } from '../../src/http/sessionCookie.js';
 import type {
   AdminRecord,
@@ -12,6 +13,11 @@ import type {
 import type { Clock } from '../../src/ports/clock.js';
 
 export const TEST_SESSION_SECRET = 'test-session-secret-0123456789abcdef';
+/** The slice of server config the guild-config service needs: a fixed throwaway key and the real Slack prefix. */
+export const TEST_GUILD_CONFIG = {
+  WEBHOOK_ENC_KEY: Buffer.alloc(32, 7).toString('base64'),
+  SLACK_WEBHOOK_URL_PREFIX: 'https://hooks.slack.com/services/',
+};
 export const TEST_TTL_MS = 60 * 60_000;
 export const SECURE_COOKIE: SessionCookieSettings = { secure: true, ttlMs: TEST_TTL_MS };
 
@@ -127,14 +133,34 @@ export function unusedDashboard(): DashboardService {
   });
 }
 
+/** A write side whose store is never reached: a test that touches it fails loudly. */
+export function unusedGuildConfig(): GuildConfigService {
+  const unused = (): never => {
+    throw new Error('This test did not expect the guild config store to be used.');
+  };
+  const cipher = { encrypt: unused, decrypt: unused };
+  return new GuildConfigService(
+    {
+      claimGuild: unused,
+      readSettings: unused,
+      updateSettings: unused,
+      listRules: unused,
+      saveRule: unused,
+    },
+    cipher,
+    { allowedWebhookPrefix: 'https://hooks.slack.com/services/' },
+  );
+}
+
 /** For tests of other routes that need a server but never sign in. */
 export function inertAuth(): {
   auth: AuthService;
   cookie: SessionCookieSettings;
   dashboard: DashboardService;
+  guildConfig: GuildConfigService;
 } {
   const { auth, cookie } = makeAuthKit();
-  return { auth, cookie, dashboard: unusedDashboard() };
+  return { auth, cookie, dashboard: unusedDashboard(), guildConfig: unusedGuildConfig() };
 }
 
 export const ADMIN_EMAIL = 'admin@example.test';

@@ -5,7 +5,7 @@ import { createRequestPool } from './adapters/pg/pool.js';
 import { PgStatusReader } from './adapters/pg/pgStatusReader.js';
 import { SystemClock } from './adapters/systemClock.js';
 import { InteractionController } from './app/interactions.js';
-import { composeAuth, composeDashboard, composeWorker } from './compose.js';
+import { composeAuth, composeDashboard, composeGuildConfig, composeWorker } from './compose.js';
 import {
   ConfigError,
   loadServerConfig,
@@ -96,6 +96,7 @@ function startServerWithWorker(config: ServerConfig): void {
     logger,
     auth,
     dashboard: composeDashboard(requestPool),
+    guildConfig: composeGuildConfig(config, requestPool),
     cookie,
     trustProxyHops: config.TRUST_PROXY_HOPS,
   }).listen(config.PORT, () => {
