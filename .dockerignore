@@ -1,0 +1,13 @@
+# Keeps secrets and local state out of any Docker build context.
+.env
+.env.*
+!.env.example
+.git
+node_modules
+**/node_modules
+apps/web/dist
+apps/web/.angular
+.angular
+coverage
+*.log
+.claude/settings.local.json
