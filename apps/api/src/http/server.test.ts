@@ -280,6 +280,66 @@ describe('POST /interactions: replay window', () => {
     await signedPost(pingPayload, unixSeconds(NOW_MS - 240_000)).expect(200);
   });
 
+  it('WHEN a validly signed request is exactly at the window edge THE SYSTEM SHALL accept it, and one second past it reject it', async () => {
+    const { signedPost } = harness();
+    await signedPost(pingPayload, unixSeconds(NOW_MS - REPLAY_WINDOW_MS)).expect(200);
+    await signedPost(pingPayload, unixSeconds(NOW_MS - REPLAY_WINDOW_MS - 1000)).expect(401);
+  });
+
+  it('WHEN a validly signed PING is stale THE SYSTEM SHALL reject it, and WHEN it is fresh answer {"type":1}', async () => {
+    const { signedPost } = harness();
+
+    const stale = await signedPost(pingPayload, unixSeconds(NOW_MS - 10 * 60_000));
+    const fresh = await signedPost(pingPayload, unixSeconds(NOW_MS));
+
+    expect(stale.status).toBe(401);
+    expect(stale.text).toBe('');
+    expect(fresh.status).toBe(200);
+    expect(fresh.body).toEqual({ type: 1 });
+  });
+
+  it('WHEN a validly signed command is stale THE SYSTEM SHALL write no row, read nothing and log neither the body nor the token', async () => {
+    const { signedPost, ledger, reader, sink } = harness();
+
+    const res = await signedPost(reportPayload('printer on fire'), unixSeconds(NOW_MS - 3_600_000));
+
+    expect(res.status).toBe(401);
+    expect(res.text).toBe('');
+    expect(ledger.inputs).toEqual([]);
+    expect(reader.calls).toEqual([]);
+    expect(sink.text()).not.toContain(FAKE_INTERACTION_TOKEN);
+    expect(sink.text()).not.toContain('printer on fire');
+  });
+
+  it('WHEN a validly signed timestamp is 30 s ahead of our clock THE SYSTEM SHALL accept it, and 2 minutes ahead reject it', async () => {
+    const { signedPost } = harness();
+    await signedPost(pingPayload, unixSeconds(NOW_MS + 30_000)).expect(200);
+    await signedPost(pingPayload, unixSeconds(NOW_MS + 120_000)).expect(401);
+  });
+
+  it.each([
+    ['empty', ''],
+    ['letters', 'abc'],
+    ['negative', '-5'],
+    ['fractional', '1.5'],
+    ['exponent', '1e9'],
+    ['leading space', ' 1800000000'],
+    ['hex', '0x6b49d200'],
+    ['absurdly long', '9'.repeat(400)],
+    ['twelve nines (year 33658)', '999999999999'],
+  ])(
+    'WHEN a validly signed request carries a %s timestamp THE SYSTEM SHALL answer 401 with no body, never 500',
+    async (_name, timestamp) => {
+      const { signedPost, ledger } = harness();
+
+      const res = await signedPost(pingPayload, timestamp);
+
+      expect(res.status).toBe(401);
+      expect(res.text).toBe('');
+      expect(ledger.inputs).toEqual([]);
+    },
+  );
+
   it('THE SYSTEM SHALL verify the signature before it looks at the timestamp', async () => {
     const { post, keypair, signedPost, sink } = harness();
     const body = JSON.stringify(pingPayload);

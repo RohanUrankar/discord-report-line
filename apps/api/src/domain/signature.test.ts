@@ -2,7 +2,12 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
-import { REPLAY_WINDOW_MS, isTimestampFresh, verifySignature } from './signature.js';
+import {
+  MAX_FUTURE_SKEW_MS,
+  REPLAY_WINDOW_MS,
+  isTimestampFresh,
+  verifySignature,
+} from './signature.js';
 
 // Self-generated keypair: Discord cannot sign for tests, so we play Discord (CLAUDE.md "Verify these").
 const { publicKey, privateKey } = generateKeyPairSync('ed25519');
@@ -117,8 +122,16 @@ describe('isTimestampFresh', () => {
     expect(isTimestampFresh(TIMESTAMP, SENT_AT_MS + REPLAY_WINDOW_MS + 1)).toBe(false);
   });
 
-  it('rejects a timestamp more than 5 minutes in the future (bounds clock skew both ways)', () => {
-    expect(isTimestampFresh(TIMESTAMP, SENT_AT_MS - REPLAY_WINDOW_MS - 1)).toBe(false);
+  it('accepts a timestamp up to the future-skew tolerance ahead of our clock', () => {
+    expect(isTimestampFresh(TIMESTAMP, SENT_AT_MS - MAX_FUTURE_SKEW_MS)).toBe(true);
+  });
+
+  it('rejects a timestamp further ahead than the future-skew tolerance', () => {
+    expect(isTimestampFresh(TIMESTAMP, SENT_AT_MS - MAX_FUTURE_SKEW_MS - 1)).toBe(false);
+  });
+
+  it('rejects a 12-digit timestamp thousands of years ahead', () => {
+    expect(isTimestampFresh('999999999999', SENT_AT_MS)).toBe(false);
   });
 
   it('honours a caller-supplied window', () => {

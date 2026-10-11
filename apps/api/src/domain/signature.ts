@@ -3,6 +3,13 @@ import { createPublicKey, verify } from 'node:crypto';
 /** Reject signed requests whose timestamp is further than this from now (DESIGN §7.1, §13 T-03). */
 export const REPLAY_WINDOW_MS = 5 * 60_000;
 
+/**
+ * How far AHEAD of our clock a signed timestamp may be. Discord stamps a request when it sends it, so a future
+ * timestamp can only mean our clock is slow. NTP-synced hosts are within milliseconds, so 60 s is generous for
+ * that, and anything further ahead is not a request Discord just sent (DESIGN rev 8, §13 T-03).
+ */
+export const MAX_FUTURE_SKEW_MS = 60_000;
+
 const SIGNATURE_HEX = /^[0-9a-fA-F]{128}$/; // Ed25519 signature: 64 bytes
 const PUBLIC_KEY_HEX = /^[0-9a-fA-F]{64}$/; // Ed25519 public key: 32 bytes
 const UNIX_SECONDS = /^\d{1,12}$/;
@@ -48,16 +55,18 @@ export function verifySignature(
 /**
  * Replay guard (CLAUDE.md, DESIGN §13 T-03). Call only AFTER `verifySignature` succeeds, since only then is
  * the timestamp trustworthy. `timestamp` is Discord's `X-Signature-Timestamp` (unix seconds).
- * Bounds skew in both directions; a malformed timestamp is never fresh.
+ * Stale: older than `windowMs`. Early: more than `futureSkewMs` ahead of `nowMs`. A malformed timestamp
+ * (anything but 1 to 12 digits) is never fresh.
  */
 export function isTimestampFresh(
   timestamp: string,
   nowMs: number,
   windowMs: number = REPLAY_WINDOW_MS,
+  futureSkewMs: number = MAX_FUTURE_SKEW_MS,
 ): boolean {
   if (!UNIX_SECONDS.test(timestamp)) {
     return false;
   }
-  const sentAtMs = Number(timestamp) * MS_PER_SECOND;
-  return Math.abs(nowMs - sentAtMs) <= windowMs;
+  const ageMs = nowMs - Number(timestamp) * MS_PER_SECOND;
+  return ageMs <= windowMs && ageMs >= -futureSkewMs;
 }

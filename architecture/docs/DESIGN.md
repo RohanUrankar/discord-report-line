@@ -12,6 +12,8 @@
 
 **Changes 2026-10-12 (rev 7):** Step 5 decisions (§5.5): verified component numbers, the modal path, runtime rule reads, report buttons. Rule reads at runtime were missing after Step 4 (the controller used defaults only) and are now wired through one `resolveAction`.
 
+**Changes 2026-10-12 (rev 8):** Step 6 decisions. A: replay check keeps the 5-minute past window and adds a separate 60 s future-skew bound (§13 T-03).
+
 ---
 
 ## 0. How to read this
@@ -1035,6 +1037,8 @@ Trust boundaries and numbered flows are in the DFD (section 2.4).
 | T-11 | 5 | Tampering (LLM) | Report text steers model to trigger an action | LLM output only tags/summarises; validate against a fixed enum; fallback tag; never drives privileged actions | None |
 
 **Replay window justification (T-03):** Discord's signature proves origin, not freshness, and the docs give no timestamp window, so this is our decision. Five minutes covers realistic clock skew and network delay while bounding the replay surface; the dedupe row is the backstop that makes a within-window replay a no-op. Check the timestamp **after** verifying the signature (only then is it trustworthy).
+
+**Rev 8, future timestamps:** the window is asymmetric. A request may be up to `REPLAY_WINDOW_MS` (5 min) old but only `MAX_FUTURE_SKEW_MS` (60 s) ahead of our clock. Discord stamps a request when it sends it, so a future stamp can only mean our clock runs slow, and NTP-synced hosts are within milliseconds; 60 s is generous for that while refusing a timestamp that cannot have come from a request Discord just sent. A symmetric 5 min would not lengthen the replay window (a replay is judged by age), so this is tidiness more than security; it is cheap and testable. Malformed, empty or absurd (more than 12 digits, or a year-33658 value) timestamps are not fresh and get the same bare 401, never a 500.
 
 **Derived security requirements (feed the build plan):** SR-1 verify before parse, 401 on fail, no 500 on malformed input. SR-2 reject timestamps older than 5 min. SR-3 dedupe on interaction id via DB constraint. SR-4 every dashboard query tenant-scoped, object-level check. SR-5 secrets never in repo/bundle/logs; `.env.example` with placeholders; token in its own column, redacted. SR-6 CSRF on dashboard mutations; argon2id; login rate-limit.
 
