@@ -7,7 +7,7 @@ import type { Logger } from '../../src/ports/logger.js';
 
 const TEST_POOL_MAX = 10;
 
-const silentLogger: Logger = {
+export const silentLogger: Logger = {
   info: () => undefined,
   warn: () => undefined,
   error: () => undefined,
@@ -94,5 +94,44 @@ export function useTestDatabase(): () => pg.Pool {
       throw new Error('The test database is not ready: its beforeAll hook failed.');
     }
     return pool;
+  };
+}
+
+/**
+ * Records the SQL text of every statement the pool's NEW connections run, so a test can prove a secret
+ * only ever travelled as a bind parameter. Call it before the pool opens its first connection.
+ * The casts are confined to this helper: `pg` overloads `query` too widely to wrap type-safely.
+ */
+export function captureQueryText(pool: pg.Pool): string[] {
+  const texts: string[] = [];
+  pool.on('connect', (client) => {
+    const original = client.query.bind(client) as (...args: unknown[]) => unknown;
+    client.query = ((...args: unknown[]) => {
+      const first = args[0];
+      texts.push(queryTextOf(first));
+      return original(...args);
+    }) as typeof client.query;
+  });
+  return texts;
+}
+
+function queryTextOf(first: unknown): string {
+  if (typeof first === 'string') {
+    return first;
+  }
+  if (typeof first === 'object' && first !== null && 'text' in first && typeof first.text === 'string') {
+    return first.text;
+  }
+  return '';
+}
+
+/**
+ * Makes every INSERT INTO job fail with a check violation (23514), after the interaction and action rows
+ * were already written in the same transaction. NOT VALID applies the rule to new rows only. Returns the undo.
+ */
+export async function forceJobInsertFailure(pool: pg.Pool): Promise<() => Promise<void>> {
+  await pool.query('ALTER TABLE job ADD CONSTRAINT job_test_force_failure CHECK (false) NOT VALID');
+  return async () => {
+    await pool.query('ALTER TABLE job DROP CONSTRAINT IF EXISTS job_test_force_failure');
   };
 }
