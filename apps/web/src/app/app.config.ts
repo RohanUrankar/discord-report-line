@@ -1,8 +1,14 @@
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { type ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
-import { provideRouter, withComponentInputBinding } from '@angular/router';
+import {
+  TitleStrategy,
+  provideRouter,
+  withComponentInputBinding,
+  withRouterConfig,
+} from '@angular/router';
 
 import { routes } from './app.routes';
+import { PageTitleStrategy } from './core/a11y/page-title.strategy';
 import { csrfInterceptor } from './core/http/csrf.interceptor';
 import { errorInterceptor } from './core/http/error.interceptor';
 
@@ -12,7 +18,12 @@ import { errorInterceptor } from './core/http/error.interceptor';
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideRouter(routes, withComponentInputBinding()),
+    provideRouter(
+      routes,
+      withComponentInputBinding(),
+      withRouterConfig({ paramsInheritanceStrategy: 'always' }),
+    ),
+    { provide: TitleStrategy, useExisting: PageTitleStrategy },
     provideHttpClient(withInterceptors([csrfInterceptor, errorInterceptor])),
   ],
 };
