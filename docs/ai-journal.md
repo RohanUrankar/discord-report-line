@@ -195,3 +195,29 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** (a) `findDashboardDir` is async and called from `index.ts` before `createServer`; `mountDashboard` just mounts a directory already accepted. (b) Re-applied the README edit, this time with a short table row so prettier does not rewrap the whole table.
 - **Cost:** minutes.
 - **Lesson → guardrail:** the missing-dist and index-less-directory tests drive `findDashboardDir`; check `git diff` before any `git checkout <file>`.
+### 2026-10-12 — step 4 item 6 (web): a shell heredoc with an apostrophe swallowed a whole batch of files
+
+- **Believed / generated:** one bash call with five `cat > file <<'EOF'` heredocs would write five files, as it did for config files earlier.
+- **Noticed by:** `unexpected EOF while looking for matching '''` and `find core` finding nothing: the script failed to parse, so none of the files existed.
+- **Root cause:** text such as `We can't reach the server` inside a long multi-heredoc command line broke the tool's shell parsing even though each heredoc was quoted. Same family as the backtick entries above.
+- **Fix:** every source file goes through the Write tool; bash is for running commands.
+- **Cost:** a minute, but the lost output was a full design pass of five files.
+- **Lesson → guardrail:** none beyond this note.
+
+### 2026-10-12 — step 4 item 6 (web): `Date.parse('-5')` is a date, so `Retry-After: -5` became "wait 0 seconds"
+
+- **Believed / generated:** `parseRetryAfter` accepts digits as seconds and otherwise tries `Date.parse`, returning null when the result is NaN.
+- **Noticed by:** my own table test `parseRetryAfter('-5')` expected null and got `0`.
+- **Root cause:** `Date.parse` is far more permissive than an HTTP date; a bare `-5` parses as the year -5. NaN is not the only "not a date" outcome.
+- **Fix:** only strings that contain three letters in a row (a day or month name) are tried as dates.
+- **Cost:** minutes; in production a bogus header would have shown "Try again in 1 second" and invited retries against a rate limiter.
+- **Lesson → guardrail:** the `gives up on anything else` test.
+
+### 2026-10-12 — step 4 item 6 (web): Node 26's experimental `localStorage` global shadows jsdom's in Vitest
+
+- **Believed / generated:** a test can assert "nothing was stored" with `expect(localStorage.length).toBe(0)` under the jsdom environment.
+- **Noticed by:** `TypeError: Cannot read properties of undefined (reading 'length')` plus `ExperimentalWarning: localStorage is not available because --localstorage-file was not provided`.
+- **Root cause:** Node 25+ defines its own `localStorage` global that is unusable without a flag, and it wins over the jsdom one.
+- **Fix:** the test installs recording `Proxy` stand-ins with `vi.stubGlobal` and asserts nothing was read or written. That is a stronger test anyway: it fails on a read, not only on leftover data.
+- **Cost:** minutes.
+- **Lesson → guardrail:** the stub-based test in `auth.spec.ts`.
