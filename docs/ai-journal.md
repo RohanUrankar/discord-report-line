@@ -51,3 +51,43 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** wrote the file with the Write tool (which has its own `.env.example` allowance) and reworded the comment.
 - **Cost:** one retry. No secret was at risk.
 - **Lesson → guardrail:** create env templates with Write, not shell heredocs. Hook left unchanged (it is the architect's).
+
+### 2026-10-12 — docs/context: the Step 2 brief cites a DESIGN section that is not in DESIGN.md
+- **Believed / generated:** the task said to read "DESIGN.md rev 4 ... §9 (all, incl. 'Rev 4 data-model decisions')". I went looking for that section before writing the migration.
+- **Noticed by:** `grep -i "rev 4"` over DESIGN.md found nothing; the header stops at "rev 3, 3.1", and the only uncommitted change to DESIGN.md is the §7 module-tree split of `reply.ts`.
+- **Root cause:** the brief was written against a revision of the design that was never saved (or is in an unsaved editor buffer).
+- **Fix:** built from the §9 ER diagram and enum list plus the decisions the brief itself spells out (nullable `guild.name`, `post_channel_id`, `mirror_webhook_enc`, guild upsert on first interaction). Those all appear in the committed §9 ER diagram, so no contract was invented. Reported to the orchestrator to confirm nothing else is in the missing section.
+- **Cost:** a few minutes; risk was silently missing a decision, which is why the brief's list was cross-checked against the ER diagram.
+- **Lesson → guardrail:** none; the architect should save rev 4 into DESIGN.md.
+
+### 2026-10-12 — ledger: transaction must live on ONE checked-out client (decision, not a bug)
+- **Believed / generated:** the easy shape is `pool.query('BEGIN')`, `pool.query(INSERT ...)`, `pool.query('COMMIT')`. Each call may use a different pooled connection, so BEGIN and COMMIT would land on different sessions and the "transaction" would be unrelated statements: a failed job insert would leave an orphan interaction row, which defeats the outbox.
+- **Noticed by:** reading the `resilience` skill's request-path rule before writing `PgLedger`; the forced-failure test (`CHECK (false) NOT VALID` on `job`) is what proves it.
+- **Root cause:** `pg.Pool#query` hides connection checkout; nothing in the types warns that it is not transactional.
+- **Fix:** `PgLedger.recordAndEnqueue` uses `pool.connect()` once, runs BEGIN..COMMIT on that client, rolls back on any error, and releases in `finally` (`release(true)` destroys the connection if ROLLBACK itself failed).
+- **Cost:** none (avoided).
+- **Lesson → guardrail:** `pgLedger.test.ts` asserts no interaction, action or guild row survives a failed job insert, and that the pool is not starved after repeated failures.
+
+### 2026-10-12 — testing: my first failure injection depended on a driver behaviour I had not verified
+- **Believed / generated:** to make the job insert fail I first wrote `tokenExpiresAt: new Date(Number.NaN)`, assuming `pg` serialises an invalid Date to text Postgres rejects. It could also have become NULL, and `token_expires_at` is nullable, so the "failing" insert would have succeeded and the test would have passed vacuously on the success path.
+- **Noticed by:** re-reading the test before any database existed to run it against, asking "what if this does not fail?".
+- **Root cause:** reaching for a convenient bad input instead of a guaranteed failure.
+- **Fix:** `forceJobInsertFailure()` adds `CHECK (false) NOT VALID` to `job` for the test, so every job insert fails with SQLSTATE 23514 after the interaction and action inserts succeeded; the test asserts the code.
+- **Cost:** none.
+- **Lesson → guardrail:** failure-path tests inject the failure in the database, not through a guess about input handling.
+
+### 2026-10-12 — tooling: a stand-in Postgres desynced after a failed statement and looked like a ledger bug
+- **Believed / generated:** with no Postgres available I ran the DB tests against PGlite through `pglite-socket` (a throwaway scratch install, not part of the repo). After the first forced failure, `SELECT count(*)` returned ZERO rows and the next insert reported `'duplicate'` with nothing committed.
+- **Noticed by:** `count(*)` cannot return no rows in real Postgres, so the emulator's protocol state was suspect, not `PgLedger`. Replaying the exact statements through PGlite's direct API (no socket) gave the expected result: guild, interaction, action and job all 0 after ROLLBACK, and SQLSTATE 23514 on the job insert.
+- **Root cause:** `pglite-socket` fronts a single-session engine; concurrent or post-error sockets share that session.
+- **Fix:** none needed in code. The migration SQL, ledger SQL, the rollback behaviour and the status query were verified against PGlite directly. The concurrency tests (10 identical deliveries) CANNOT be validated that way and remain unrun until a real Postgres exists.
+- **Cost:** about 15 minutes; the risk was "fixing" correct code to satisfy a broken emulator.
+- **Lesson → guardrail:** the human supplies real Postgres (README "Database"); the 10-way concurrency tests are the first thing to run on it.
+
+### 2026-10-12 — lint: `security/detect-object-injection` is noise in this codebase (decision)
+- **Believed / generated:** enabling `eslint-plugin-security` recommended as-is.
+- **Noticed by:** the rule flags every `obj[key]`, including typed lookups like `ACTION_SUMMARIES[action.type]` where `action.type` is a closed union; with `noUncheckedIndexedAccess` the compiler already constrains these.
+- **Root cause:** the rule is a syntactic heuristic with no type information.
+- **Fix:** disabled that one rule in `eslint.config.js` with the reason; the rest of the security rules stay on (non-literal fs paths and regexps, child_process, eval, unsafe regex).
+- **Cost:** none.
+- **Lesson → guardrail:** the rule's intent (no user-controlled keys into maps) is covered by the existing guidance to use `Map` and zod `.strict()`.

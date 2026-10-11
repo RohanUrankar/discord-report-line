@@ -1,0 +1,25 @@
+# Local development database only: PostgreSQL 16 on localhost. Production uses a hosted Postgres.
+# Compose reads POSTGRES_PASSWORD from the gitignored .env in this folder; it has no default on purpose.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: report_line
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+      POSTGRES_DB: report_line
+    ports:
+      # Loopback only: the database must not be reachable from the network.
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - report_line_pgdata:/var/lib/postgresql/data
+      # Runs once, on first start of an empty volume: creates the throwaway database the tests wipe.
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U report_line -d report_line']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  report_line_pgdata:
