@@ -50,7 +50,13 @@ Account A is the one that runs commands. Account B is any other member of the se
 
    Expect `escalated | t | skipped`. The Slack channel still holds one message per report.
 
-6. **A bad rule is refused in the dashboard.** Open Command rules, `/report`, clear the reply message (or paste more than 300 characters) and save. The editor shows an error on the reply message field and nothing is saved.
+6. **A bad rule is refused in the dashboard.** Open Command rules, `/report`, clear the reply message (or paste more than 300 characters) and save. The editor shows a message under the field ("Write a reply of at least one character", or "The reply is N characters. Keep it to 300 or fewer"), puts focus on it, and sends no request. The server's own `400 VALIDATION_FAILED` cannot be reached from this form; it is covered by `guildConfigDb.test.ts`.
+
+   ```sql
+   SELECT command_name, enabled, config ->> 'replyMessage' AS reply, updated_at FROM command_rule WHERE guild_id = '<guild>';
+   ```
+
+   Expect the row unchanged (same `updated_at` as before the attempt).
 
    ```sql
    SELECT command_name, enabled, config ->> 'replyMessage' AS reply, updated_at FROM command_rule WHERE guild_id = '<guild>';

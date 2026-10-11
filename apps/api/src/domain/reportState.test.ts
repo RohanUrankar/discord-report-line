@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { availableActions, isAllowed, stateOf } from './reportState.js';
+import { availableActions, blockingActionTypes, isAllowed, stateOf } from './reportState.js';
 
 describe('report state', () => {
   it('allows reported → acknowledged, reported → escalated and acknowledged → escalated only', () => {
@@ -23,5 +23,12 @@ describe('report state', () => {
     expect(stateOf({ acknowledgedBy: '1', escalatedBy: null })).toBe('acknowledged');
     expect(stateOf({ acknowledgedBy: '1', escalatedBy: '2' })).toBe('escalated');
     expect(stateOf({ acknowledgedBy: null, escalatedBy: '2' })).toBe('escalated');
+  });
+});
+
+describe('blockingActionTypes', () => {
+  it('lists the rows that stop each move, matching isAllowed', () => {
+    expect(blockingActionTypes('acknowledge')).toEqual(['acknowledged', 'escalated']);
+    expect(blockingActionTypes('escalate')).toEqual(['escalated']);
   });
 });

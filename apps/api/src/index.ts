@@ -83,6 +83,7 @@ async function startServerWithWorker(config: ServerConfig): Promise<void> {
     replayWindowMs: config.REPLAY_WINDOW_MS,
     statusTimeoutMs: config.STATUS_TIMEOUT_MS,
     recordTimeoutMs: config.RECORD_TIMEOUT_MS,
+    ruleTimeoutMs: config.RULE_TIMEOUT_MS,
     clock,
     ledger: new PgLedger(requestPool),
     rules: new PgRuleReader(requestPool),

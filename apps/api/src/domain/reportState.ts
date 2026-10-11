@@ -41,3 +41,17 @@ export function stateOf(view: Pick<ReportView, 'acknowledgedBy' | 'escalatedBy'>
   }
   return view.acknowledgedBy !== null ? 'acknowledged' : 'reported';
 }
+
+/**
+ * The ACTION types whose presence makes `action` impossible: exactly the states in which `isAllowed` says no.
+ * The store uses this in its conditional INSERT, so the SQL and the domain share one transition table.
+ */
+export function blockingActionTypes(action: ReportButtonAction): string[] {
+  const blocking: [ReportState, string][] = [
+    ['acknowledged', CLICK_ACTION_TYPE.acknowledge],
+    ['escalated', CLICK_ACTION_TYPE.escalate],
+  ];
+  return blocking
+    .filter(([state]) => !isAllowed(state, action))
+    .map(([, actionType]) => actionType);
+}

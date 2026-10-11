@@ -15,7 +15,7 @@ import {
 import pg from 'pg';
 import { describe, expect, it } from 'vitest';
 
-import { testDatabaseUrl, useTestDatabase } from '../../../test/helpers/db.js';
+import { testDatabaseUrl, truncateAll, useTestDatabase } from '../../../test/helpers/db.js';
 import { MIGRATIONS_DIR, MigrationError, runMigrations } from './migrator.js';
 
 const db = useTestDatabase();
@@ -160,6 +160,47 @@ describe('schema (DESIGN §9)', () => {
          VALUES ('i1', '1', 'c', 'u', 2, 'invented')`,
       ),
     ).rejects.toMatchObject({ code: '23514' });
+  });
+});
+
+describe('migration 004: click actions', () => {
+  const seed = async (): Promise<void> => {
+    await db().query("INSERT INTO guild (id) VALUES ('1')");
+    for (const id of ['r1', 'c1', 'c2']) {
+      await db().query(
+        `INSERT INTO interaction (id, guild_id, channel_id, user_id, type, status)
+         VALUES ($1, '1', 'c', 'u', 2, 'answered')`,
+        [id],
+      );
+    }
+    await db().query(
+      `INSERT INTO action (interaction_id, guild_id, type, mirror_status) VALUES ('r1', '1', 'report', 'skipped')`,
+    );
+  };
+  const click = (id: string, type: string, reportId: string | null) =>
+    db().query(
+      `INSERT INTO action (interaction_id, guild_id, type, mirror_status, report_id)
+       VALUES ($1, '1', $2, 'skipped', $3)`,
+      [id, type, reportId],
+    );
+
+  it('WHEN a report is acknowledged twice THE SYSTEM SHALL refuse the second row at the database', async () => {
+    await truncateAll(db());
+    await seed();
+    await click('c1', 'acknowledged', 'r1');
+    await expect(click('c2', 'acknowledged', 'r1')).rejects.toMatchObject({ code: '23505' });
+  });
+
+  it('WHEN a click row has no report, or a report row has one THE SYSTEM SHALL refuse it at the database', async () => {
+    await truncateAll(db());
+    await seed();
+    await expect(click('c1', 'escalated', null)).rejects.toMatchObject({ code: '23514' });
+    await expect(click('c2', 'report', 'r1')).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('SHALL still have the structural check the enum drift test exempts', async () => {
+    const definitions = await constraintDefinitions();
+    expect(definitions.has('action_report_id_check')).toBe(true);
   });
 });
 

@@ -3,7 +3,12 @@ import type pg from 'pg';
 import { z } from 'zod';
 
 import { ACTION_SUMMARIES } from '../../domain/messages.js';
-import { CLICK_ACTION_TYPE, stateOf, type ReportView } from '../../domain/reportState.js';
+import {
+  blockingActionTypes,
+  CLICK_ACTION_TYPE,
+  stateOf,
+  type ReportView,
+} from '../../domain/reportState.js';
 import type { ClickOutcome, ReportActionStore, ReportClick } from '../../ports/reportActions.js';
 
 // Tenancy (CLAUDE.md): the guild in every statement is the signed interaction's, never the custom_id's.
@@ -45,12 +50,6 @@ const READ_VIEW = `
     FROM action a
     LEFT JOIN job j ON j.interaction_id = a.interaction_id
    WHERE a.interaction_id = $1`;
-
-/** Which existing rows make a move impossible. Mirrors isAllowed() in reportState.ts. */
-const BLOCKERS = {
-  acknowledge: ['acknowledged', 'escalated'],
-  escalate: ['escalated'],
-} as const;
 
 const ViewRow = z.object({
   mirror_status: z.string(),
@@ -105,7 +104,7 @@ export class PgReportActionStore implements ReportActionStore {
       type,
       ACTION_SUMMARIES[type],
       click.reportId,
-      BLOCKERS[click.action],
+      blockingActionTypes(click.action),
     ]);
     const view = await this.readView(client, click.reportId);
     return written.rows.length === 0 ? { kind: 'refused', view } : { kind: 'applied', view };

@@ -10,7 +10,7 @@ import { REPLAY_WINDOW_MS } from './domain/signature.js';
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const;
 const WORKER_MODES = ['inline', 'standalone'] as const;
 const DEFAULT_PORT = 3000;
-const DEFAULT_STATUS_TIMEOUT_MS = 1500; // well inside Discord's 3 s window (CLAUDE.md)
+const DEFAULT_STATUS_TIMEOUT_MS = 1200; // rule + record + status read must fit Discord's 3 s window (CLAUDE.md)
 const DEFAULT_DISCORD_TIMEOUT_MS = 5000;
 /** Where `ng build` puts the dashboard (apps/web, project "web"), found from this file so the working directory does not matter. */
 export const DEFAULT_WEB_DIST_DIR = fileURLToPath(
@@ -26,7 +26,8 @@ const positiveInt = z.coerce.number().int().positive();
 const logLevel = z.preprocess(unlessEmpty, z.enum(LOG_LEVELS).default('info'));
 
 // Request-path database limits (resilience skill): nothing on the 3 s path may wait without a bound.
-const DEFAULT_RECORD_TIMEOUT_MS = 1200;
+const DEFAULT_RECORD_TIMEOUT_MS = 1000;
+const DEFAULT_RULE_TIMEOUT_MS = 400;
 const DEFAULT_DB_POOL_MAX = 5; // free-tier Postgres allows few connections
 const DEFAULT_DB_CONNECTION_TIMEOUT_MS = 1000;
 const DEFAULT_DB_STATEMENT_TIMEOUT_MS = 1500;
@@ -133,6 +134,7 @@ const ServerEnv = z
     REPLAY_WINDOW_MS: z.preprocess(unlessEmpty, positiveInt.default(REPLAY_WINDOW_MS)),
     STATUS_TIMEOUT_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_STATUS_TIMEOUT_MS)),
     RECORD_TIMEOUT_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_RECORD_TIMEOUT_MS)),
+    RULE_TIMEOUT_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_RULE_TIMEOUT_MS)),
     DATABASE_URL: z.preprocess(unlessEmpty, databaseUrl),
     DB_POOL_MAX: z.preprocess(unlessEmpty, positiveInt.max(50).default(DEFAULT_DB_POOL_MAX)),
     DB_CONNECTION_TIMEOUT_MS: z.preprocess(
@@ -157,10 +159,15 @@ const ServerEnv = z
     ),
     ...workerShape,
   })
-  .refine((env) => env.RECORD_TIMEOUT_MS + env.STATUS_TIMEOUT_MS <= REQUEST_BUDGET_MS, {
-    path: ['RECORD_TIMEOUT_MS'],
-    error: 'RECORD_TIMEOUT_MS + STATUS_TIMEOUT_MS must fit inside the 3 s Discord window',
-  })
+  .refine(
+    (env) =>
+      env.RULE_TIMEOUT_MS + env.RECORD_TIMEOUT_MS + env.STATUS_TIMEOUT_MS <= REQUEST_BUDGET_MS,
+    {
+      path: ['RECORD_TIMEOUT_MS'],
+      error:
+        'RULE_TIMEOUT_MS + RECORD_TIMEOUT_MS + STATUS_TIMEOUT_MS must fit inside the 3 s Discord window',
+    },
+  )
   .refine(leaseOutlastsAPass, LEASE_ISSUE);
 
 /** The standalone worker (WORKER_MODE=standalone) has no HTTP server, so it needs no public key. */

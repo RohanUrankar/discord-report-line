@@ -52,7 +52,8 @@ describe('form → worker → buttons', () => {
     expect((await db().query('SELECT 1 FROM interaction')).rowCount).toBe(0);
 
     // 2. The submit is a fresh interaction: deferred at once, then filled in by the worker.
-    const submitted = (await send(modalSubmitPayload(REPORT_TEXT, SUBMIT_ID)).expect(200)).body as unknown;
+    const submitted = (await send(modalSubmitPayload(REPORT_TEXT, SUBMIT_ID)).expect(200))
+      .body as unknown;
     expect(submitted).toEqual({ type: 5, data: { flags: 64 } });
     await makeJobsDue(db());
     await h.drain();

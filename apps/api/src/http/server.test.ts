@@ -19,6 +19,8 @@ import {
   componentPayload,
   dmCommandPayload,
   pingPayload,
+  buttonPayload,
+  modalSubmitPayload,
   reportPayload,
 } from '../../test/helpers/payloads.js';
 import { inertAuth } from '../../test/helpers/authFakes.js';
@@ -62,16 +64,21 @@ class FakeStatusReader implements StatusReader {
 class FakeRuleReader implements RuleReader {
   public rows = new Map<string, StoredRuleRow>();
   public failWith: Error | undefined;
+  public hang = false;
   public read(_guildId: string, command: CommandName): Promise<StoredRuleRow | undefined> {
+    if (this.hang) {
+      return new Promise<StoredRuleRow | undefined>(() => undefined);
+    }
     return this.failWith ? Promise.reject(this.failWith) : Promise.resolve(this.rows.get(command));
   }
 }
 
 class FakeReportActions implements ReportActionStore {
   public readonly clicks: ReportClick[] = [];
+  public behaviour: () => Promise<ClickOutcome> = () => Promise.resolve({ kind: 'not_found' });
   public applyClick(click: ReportClick): Promise<ClickOutcome> {
     this.clicks.push(click);
-    return Promise.resolve({ kind: 'not_found' });
+    return this.behaviour();
   }
 }
 
@@ -96,6 +103,7 @@ function harness(
   const reader = new FakeStatusReader(behaviour);
   const ledger = new FakeLedger(ledgerBehaviour);
   const rules = new FakeRuleReader();
+  const reportActions = new FakeReportActions();
   const controller = new InteractionController({
     publicKeyHex: keypair.publicKeyHex,
     replayWindowMs: REPLAY_WINDOW_MS,
@@ -104,7 +112,7 @@ function harness(
     clock: { nowMs: () => NOW_MS },
     ledger,
     rules,
-    reportActions: new FakeReportActions(),
+    reportActions,
     statusReader: reader,
     ...(onJobEnqueued ? { onJobEnqueued } : {}),
   });
@@ -121,7 +129,7 @@ function harness(
     return post(body, signRequest(keypair, timestamp, body));
   };
 
-  return { app, keypair, sink, reader, ledger, rules, post, signedPost };
+  return { app, keypair, sink, reader, ledger, rules, reportActions, post, signedPost };
 }
 
 describe('POST /interactions: signature verification', () => {
@@ -637,6 +645,66 @@ describe('POST /interactions: other interactions', () => {
         data: { content: expected, allowed_mentions: { parse: [] }, flags: EPHEMERAL },
       });
       expect(reader.calls).toEqual([]);
+    },
+  );
+});
+
+describe('POST /interactions: failure paths of the rule read and the button store', () => {
+  const click = buttonPayload({ id: INTERACTION_ID, customId: 'rpt:ack:900000000000000010' });
+  const NOT_LOGGED = { type: 4, data: { content: MESSAGES.notRecorded, flags: EPHEMERAL } };
+
+  it('WHEN the button store rejects THE SYSTEM SHALL say it was not logged and log the failure without its message', async () => {
+    const { signedPost, reportActions, sink } = harness();
+    reportActions.behaviour = () => Promise.reject(new Error('secret detail 12345'));
+
+    const res = await signedPost(click).expect(200);
+
+    expect(res.body).toMatchObject(NOT_LOGGED);
+    expect(sink.messages()).toContain('button.record_failed');
+    expect(sink.text()).not.toContain('secret detail');
+  });
+
+  it('WHEN the button store is slower than the record timeout THE SYSTEM SHALL answer not logged within the budget', async () => {
+    const { signedPost, reportActions } = harness();
+    reportActions.behaviour = () => new Promise<ClickOutcome>(() => undefined);
+    const startedAt = performance.now();
+
+    const res = await signedPost(click).expect(200);
+
+    expect(res.body).toMatchObject(NOT_LOGGED);
+    expect(performance.now() - startedAt).toBeLessThan(1000);
+  });
+
+  it.each([
+    [
+      'rejects',
+      (rules: FakeRuleReader) => {
+        rules.failWith = new Error('db down');
+      },
+    ],
+    [
+      'hangs',
+      (rules: FakeRuleReader) => {
+        rules.hang = true;
+      },
+    ],
+  ])(
+    'WHEN the rule read %s THE SYSTEM SHALL answer not logged for a click, a command and a form, and touch nothing',
+    async (_name, breakIt) => {
+      const { signedPost, rules, reportActions, ledger } = harness();
+      breakIt(rules);
+
+      const responses = [
+        await signedPost(click).expect(200),
+        await signedPost(reportPayload('x')).expect(200),
+        await signedPost(modalSubmitPayload('x')).expect(200),
+      ];
+
+      for (const res of responses) {
+        expect(res.body).toMatchObject(NOT_LOGGED);
+      }
+      expect(reportActions.clicks).toEqual([]);
+      expect(ledger.inputs).toEqual([]);
     },
   );
 });
