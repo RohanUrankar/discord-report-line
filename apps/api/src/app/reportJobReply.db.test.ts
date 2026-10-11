@@ -74,6 +74,28 @@ describe('report job: filling the deferred reply', () => {
     });
   });
 
+  it('WHEN the same /report is delivered 10 times concurrently THE SYSTEM SHALL end with one row, one job, one Slack post and one edited reply', async () => {
+    const h = pipeline();
+    h.clock.set(NOW_MS);
+    await db().query('INSERT INTO guild (id, mirror_webhook_enc) VALUES ($1, $2)', [
+      GUILD_ID,
+      h.cipher.encrypt(slackWebhookUrl(h), GUILD_ID),
+    ]);
+    const { send } = wire(db());
+
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, () => send(reportPayload(REPORT_TEXT))),
+    );
+    await h.drain();
+
+    expect(new Set(responses.map((res) => res.text)).size).toBe(1);
+    expect(responses[0]?.body).toEqual({ type: 5, data: { flags: 64 } });
+    expect((await db().query('SELECT 1 FROM interaction')).rows).toHaveLength(1);
+    expect((await db().query('SELECT 1 FROM job')).rows).toHaveLength(1);
+    expect(h.slack.requests).toHaveLength(1);
+    expect(patches()).toHaveLength(1);
+  });
+
   it('WHEN the record is slower than the record timeout but still commits THE SYSTEM SHALL tell the user it was not logged and the worker SHALL later edit that message with the result', async () => {
     const h = pipeline();
     h.clock.set(NOW_MS);

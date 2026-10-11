@@ -2,7 +2,7 @@
 
 A Discord bot that takes reports from a server, records each one exactly once, mirrors it to a team channel, and shows an admin dashboard of what happened. Built as a Node.js + TypeScript + Express API, an Angular dashboard and PostgreSQL. The design lives in [`architecture/docs/DESIGN.md`](architecture/docs/DESIGN.md); the rules every change must respect are in [`CLAUDE.md`](CLAUDE.md).
 
-**Status: build step 2 of 6 (record + dedupe + outbox).** The endpoint verifies Discord's signature, answers the PING Discord sends when you save the URL, and replies to `/status`. Every answered command is now written to Postgres exactly once before the reply. Reports, the worker, Slack mirroring and the dashboard come in later steps; this README grows with them.
+**Status: build step 3 of 6 (the core loop).** `/report text:...` is recorded, deferred within 3 s, mirrored to Slack by a background worker and answered by editing the deferred reply. Failed calls are retried with backoff, and a dead interaction token falls back to a channel post. The modal, buttons, LLM tagging and the dashboard come in later steps.
 
 ## What works today
 
@@ -15,6 +15,8 @@ A Discord bot that takes reports from a server, records each one exactly once, m
 | An unknown or turned-off command                          | Recorded, then a short private notice                                   |
 | The same interaction delivered again                      | Not recorded again; answered normally                                   |
 | The database is down or too slow                          | A private "we couldn't log that" notice within 3 s, never a 500         |
+| `/report text:...`                                        | Recorded with its job, then "thinking..." at once; the worker mirrors to Slack and edits the reply |
+| `/report` with no text, or over 1000 characters           | A short private notice, nothing stored                                  |
 | A button, a DM                                            | A short private notice (not recorded yet)                               |
 | `GET /healthz`                                            | `200 {"status":"ok"}`                                                   |
 
@@ -85,11 +87,35 @@ Every variable is validated at startup; a bad or missing one stops the process a
 | `DB_CONNECTION_TIMEOUT_MS`          | server          | no          | `1000`                        | Waiting for a connection                                                |
 | `DB_STATEMENT_TIMEOUT_MS`           | server          | no          | `1500`                        | Enforced by Postgres per statement                                      |
 | `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` | server          | no          | `5000`                        | Postgres kills a session that opens a transaction and goes quiet        |
-| `DISCORD_APP_ID`                    | register script | yes         |                               | Developer Portal, General Information, Application ID                   |
+| `DISCORD_APP_ID`                    | server, worker, register script | yes         |                               | Developer Portal, General Information, Application ID                   |
 | `DISCORD_GUILD_ID`                  | register script | yes         |                               | Your test server's ID                                                   |
-| `DISCORD_BOT_TOKEN`                 | register script | yes         |                               | A real secret. Environment only; never logged or committed              |
+| `DISCORD_BOT_TOKEN`                 | server, worker, register script | yes         |                               | A real secret. Environment only; never logged or committed              |
 | `DISCORD_API_BASE_URL`              | register script | no          | `https://discord.com/api/v10` | Point at a stub in tests                                                |
-| `DISCORD_TIMEOUT_MS`                | register script | no          | `5000`                        |                                                                         |
+| `DISCORD_TIMEOUT_MS`                | worker, register script | no | `5000`                        | Per Discord call                                                        |
+| `WEBHOOK_ENC_KEY`                   | server, worker, set-mirror-webhook | yes |                  | 32 random bytes, base64. A real secret                                  |
+| `SLACK_WEBHOOK_URL_PREFIX`          | worker, set-mirror-webhook | no | `https://hooks.slack.com/services/` | Only URLs under this prefix are stored or called           |
+| `SLACK_TIMEOUT_MS`                  | worker          | no          | `5000`                        | Per Slack call                                                          |
+| `WORKER_MODE`                       | process         | no          | `inline`                      | `standalone` runs only the worker                                       |
+| `CLAIM_BATCH`, `POLL_INTERVAL_MS`   | worker          | no          | `5`, `1000`                   | Jobs per claim; idle poll                                               |
+| `LEASE_MS`                          | worker          | no          | `60000`                       | Must exceed three call timeouts                                         |
+| `MAX_ATTEMPTS`                      | worker          | no          | `8`                           | Passes before a job is marked dead                                      |
+| `BACKOFF_BASE_MS`, `BACKOFF_MAX_MS` | worker          | no          | `500`, `60000`                | Full-jitter backoff                                                     |
+| `WORKER_DB_POOL_MAX` and `WORKER_DB_*_TIMEOUT_MS` | worker | no | `3`, 5000, 10000, 15000 | The worker's own, looser database pool                                  |
+
+### Worker, Slack mirror and fallback
+
+The worker runs inside the server process (`WORKER_MODE=inline`, default) or alone (`WORKER_MODE=standalone`, no HTTP). It claims jobs with `FOR UPDATE SKIP LOCKED` and a lease, so several instances are safe, and a job whose worker died is picked up again once `LEASE_MS` passes. Per job it: posts the escaped report to Slack, edits the deferred reply (`PATCH @original`), and, if the interaction token is expired or Discord answers 401/404, posts in the channel with the bot token instead. A fallback for a private report never contains the report text. Timeouts, network errors, 5xx and 429 are retried (429 waits at least `Retry-After`); other 4xx are final. Every call is recorded in `job_attempt`.
+
+The fallback goes to the server's notification channel if one is set, otherwise to the channel where the command ran.
+
+**One-time setup for the Slack mirror** (secrets never go on a command line):
+
+1. Generate the encryption key without printing it (PowerShell): `$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Fill($b); Add-Content .env ("WEBHOOK_ENC_KEY=" + [Convert]::ToBase64String($b))`
+2. In Slack create an Incoming Webhook for the channel that should get reports and copy its URL.
+3. Store it encrypted: copy the URL, then run `Get-Clipboard | npm run set-mirror-webhook -- <your-server-id>`. It prints only the last four characters.
+4. Re-run `npm run register-commands` so `/report` exists, then run `npm run db:migrate`.
+
+Changing `WEBHOOK_ENC_KEY` makes stored webhooks unreadable; set them again.
 
 ## Connect it to Discord
 
@@ -116,7 +142,7 @@ apps/api/src
   config.ts    the only reader of environment variables
 packages/shared  zod schemas and enums used by the API and the dashboard
 apps/api/migrations  numbered SQL files (001_init.sql = every DESIGN section 9 table)
-scripts/         register-commands, migrate
+scripts/         register-commands, migrate, set-mirror-webhook
 ```
 
 ## Deployment

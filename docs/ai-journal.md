@@ -99,3 +99,27 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** README documents standalone `initdb`/`pg_ctl` (Windows) as Option A, Compose as Option B, hosted as C; compose maps `${POSTGRES_PORT:-5432}:5432`.
 - **Cost:** none in code; the first run of the suite on real Postgres passed (294 API + 25 shared tests), including the concurrency tests PGlite could not exercise.
 - **Lesson → guardrail:** ask what the host can run before writing setup instructions around it.
+
+### 2026-10-12 — step 3: the design text I was told to follow did not exist
+- **Believed / generated:** the brief cited "Rev 5 decisions for Step 3" in DESIGN §9; I read §9 and found only the Rev 4 block and two ER-diagram lines.
+- **Noticed by:** grep for "rev 5", "payload", "heartbeat" across DESIGN.md.
+- **Root cause:** the architect's edit was only partly on disk when committed as "design rev 5".
+- **Fix:** built from the decisions restated in the brief and listed every assumption in proposal 0005 rather than guessing silently.
+- **Cost:** none in code; one open question (fallback channel rule).
+- **Lesson → guardrail:** check that a cited section exists before relying on it.
+
+### 2026-10-12 — step 3: tests that could not fail
+- **Believed / generated:** my first pipeline tests all passed on the first run, including 15 Slack scenarios.
+- **Noticed by:** suspicion about first-run green; I mutated the runner five ways (skip the mirror marker check, keep the token, flip ephemeral, ignore expiry, never mark mirror failed) and watched which tests failed.
+- **Root cause:** none found; all five mutants were killed. The mutation check is what made that evidence.
+- **Fix:** none needed. One test (the HTTP path) did fail for a test bug: the guild had no webhook, so the mirror was `skipped`; I seeded the webhook.
+- **Cost:** about 10 minutes.
+- **Lesson → guardrail:** run a quick mutation pass on retry/idempotency code before trusting a green suite.
+
+### 2026-10-12 — tooling: long shell heredocs fail in this environment
+- **Believed / generated:** writing files and scripts via `cat <<'EOF'` in one big Bash call.
+- **Noticed by:** "unexpected EOF while looking for matching `'`" on several calls of 150+ lines.
+- **Root cause:** the Bash tool's handling of long quoted heredocs on Windows; short ones worked.
+- **Fix:** use the Write and Edit tools for files, small node scripts for multi-point edits.
+- **Cost:** a few retries.
+- **Lesson → guardrail:** none beyond this note.
