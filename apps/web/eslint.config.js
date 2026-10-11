@@ -43,6 +43,10 @@ export default tseslint.config(
         { allowNumber: true, allowBoolean: false, allowNullish: false },
       ],
       '@typescript-eslint/unbound-method': ['error', { ignoreStatic: true }], // Validators.required
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true },
+      ],
       eqeqeq: 'error',
       curly: ['error', 'all'],
       'no-console': 'error',

@@ -47,6 +47,12 @@ export const routes: Routes = [
               import('./features/settings/settings-page').then((m) => m.SettingsPage),
           },
           {
+            path: 'rules',
+            title: 'Command rules',
+            canDeactivate: [unsavedChangesGuard],
+            loadComponent: () => import('./features/rules/rules-page').then((m) => m.RulesPage),
+          },
+          {
             path: 'log/:interactionId',
             title: 'Command details',
             loadComponent: () =>
