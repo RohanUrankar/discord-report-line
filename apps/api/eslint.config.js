@@ -1,6 +1,7 @@
 // @ts-check
 import js from '@eslint/js';
 import globals from 'globals';
+import path from 'node:path';
 import tseslint from 'typescript-eslint';
 
 const IO_MODULES = ['express', 'pg', 'pg-*', 'undici', 'node-fetch', 'axios', 'pino'];
@@ -12,10 +13,6 @@ const IO_MODULES = ['express', 'pg', 'pg-*', 'undici', 'node-fetch', 'axios', 'p
  */
 function domainImportBans({ allowNodeCrypto }) {
   return [
-    {
-      regex: '(^|/)\\.\\.(/|$)',
-      message: 'domain/ imports nothing outside domain/ (DESIGN §7).',
-    },
     {
       regex: '^@report-line/shared/',
       message: 'Import @report-line/shared from its root, not its internals.',
@@ -29,11 +26,50 @@ function domainImportBans({ allowNodeCrypto }) {
           },
         ]),
     {
-      regex: '^(?!\\./|@report-line/shared($|/)|zod$|node:crypto$)',
-      message: 'domain/ may import only ./*, @report-line/shared and zod (DESIGN §7).',
+      // Relative specifiers pass here; local/domain-imports-stay-inside judges where they resolve.
+      regex: '^(?!\\.{1,2}/|@report-line/shared($|/)|zod$|node:crypto$)',
+      message: 'domain/ may import only domain/, @report-line/shared and zod (DESIGN §7).',
     },
   ];
 }
+
+const DOMAIN_DIR = path.resolve(import.meta.dirname, 'src/domain');
+
+/**
+ * Relative imports in domain/ must resolve inside src/domain/. A `..` is fine when it stays inside
+ * (src/domain/a/b.ts importing ../c.js); it is an error only when the resolved path leaves domain/.
+ * @type {import('eslint').Rule.RuleModule}
+ */
+const domainImportsStayInside = {
+  meta: {
+    type: 'problem',
+    schema: [],
+    messages: { outside: 'domain/ imports nothing outside domain/ (DESIGN §7).' },
+  },
+  create(context) {
+    /** @param {{ source?: { type: string; value?: unknown } | null }} node */
+    const check = (node) => {
+      const source = node.source;
+      if (source?.type !== 'Literal' || typeof source.value !== 'string') {
+        return;
+      }
+      if (!source.value.startsWith('.')) {
+        return; // bare specifiers are the allow-list's job
+      }
+      const resolved = path.resolve(path.dirname(context.filename), source.value);
+      const relative = path.relative(DOMAIN_DIR, resolved);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        context.report({ node: /** @type {any} */ (source), messageId: 'outside' });
+      }
+    };
+    return {
+      ImportDeclaration: check,
+      ExportNamedDeclaration: check,
+      ExportAllDeclaration: check,
+      ImportExpression: check,
+    };
+  },
+};
 
 export default tseslint.config(
   { ignores: ['dist/**', 'coverage/**'] },
@@ -74,7 +110,7 @@ export default tseslint.config(
   },
   {
     // DESIGN §7 (rev 3 + proposal 0004): domain/ is pure. Strict import allow-list: relative imports
-    // within domain/, @report-line/shared (root only) and zod; node:crypto only in signature.ts.
+    // resolving inside domain/, @report-line/shared (root only) and zod; node:crypto only in signature.ts.
     files: ['src/domain/**/*.ts'],
     ignores: ['src/domain/**/*.test.ts'],
     rules: {
@@ -83,6 +119,11 @@ export default tseslint.config(
         { patterns: domainImportBans({ allowNodeCrypto: false }) },
       ],
     },
+  },
+  {
+    files: ['src/domain/**/*.ts'],
+    plugins: { local: { rules: { 'domain-imports-stay-inside': domainImportsStayInside } } },
+    rules: { 'local/domain-imports-stay-inside': 'error' },
   },
   {
     files: ['src/domain/signature.ts'],
