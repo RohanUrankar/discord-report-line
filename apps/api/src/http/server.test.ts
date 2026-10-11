@@ -2,8 +2,8 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
 import { InteractionController, type InteractionHandler } from '../app/interactions.js';
-import { MESSAGES } from '../domain/reply.js';
-import type { StatusCounts } from '../domain/reply.js';
+import { MESSAGES } from '../domain/messages.js';
+import type { StatusCounts } from '../domain/status.js';
 import type { StatusReader } from '../ports/status.js';
 import {
   FAKE_INTERACTION_TOKEN,

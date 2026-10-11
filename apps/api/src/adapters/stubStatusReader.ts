@@ -1,4 +1,4 @@
-import type { StatusCounts } from '../domain/reply.js';
+import type { StatusCounts } from '../domain/status.js';
 import type { StatusReader } from '../ports/status.js';
 
 /** Step 1 stand-in until the ledger exists (Step 2): reports an idle system. Replaced by a Postgres reader. */

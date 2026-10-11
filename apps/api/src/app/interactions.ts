@@ -1,4 +1,7 @@
-import { MESSAGES, message, pong, statusText, type InteractionResponse } from '../domain/reply.js';
+import type { InteractionResponse } from '../domain/discordProtocol.js';
+import { message, pong } from '../domain/discordResponses.js';
+import { MESSAGES } from '../domain/messages.js';
+import { statusText } from '../domain/status.js';
 import {
   classify,
   INTERACTION_TYPE,
@@ -49,10 +52,7 @@ export interface InteractionHandler {
 export class InteractionController implements InteractionHandler {
   public constructor(private readonly options: InteractionControllerOptions) {}
 
-  public async handle(
-    request: InboundInteraction,
-    logger: Logger,
-  ): Promise<InteractionResult> {
+  public async handle(request: InboundInteraction, logger: Logger): Promise<InteractionResult> {
     const { clock } = this.options;
 
     if (
