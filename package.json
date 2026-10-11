@@ -16,7 +16,8 @@
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "format": "prettier --write .",
-    "db:migrate": "tsx --env-file=.env scripts/migrate.ts"
+    "db:migrate": "tsx --env-file=.env scripts/migrate.ts",
+    "set-mirror-webhook": "tsx --env-file=.env scripts/set-mirror-webhook.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
