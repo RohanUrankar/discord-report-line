@@ -155,3 +155,27 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** mutated to `AND $1::uuid IS NOT NULL` instead; now exactly the two adapter-level tests (`pgDashboardReader.test.ts`) fail, and the HTTP tests stay green because TenantGuard still protects them.
 - **Cost:** a few minutes. It also showed the HTTP tests alone cannot prove the second lock, which is why the adapter test exists.
 - **Lesson → guardrail:** check WHY a mutant died before counting it as killed.
+
+### 2026-10-12 — step 4 item 3 (connect, settings, rules): my validation errors would have echoed attacker-chosen text
+- **Believed / generated:** `fieldPaths(issues)` (already used by `validateRule`) returns "paths, never values", so reusing it for the new bodies keeps errors value-free. My first test even expected `config.extra<SENTINEL>` back in `details.fields`.
+- **Noticed by:** writing the sentinel test for "an unknown key": the sentinel was in the KEY, and zod's `unrecognized_keys` puts the key name into the path. Review of my own test expectation, not a failing run.
+- **Root cause:** "path" is not always schema-defined text: for unknown keys it is whatever the caller typed. A key name can carry a pasted secret or a log-injection string just as a value can.
+- **Fix:** `publicFieldPaths(paths, known)` in `domain/fieldPaths.ts`; the route only shows paths the API itself defines, otherwise the nearest known parent or `(root)`. Tests assert the sentinel key never appears in the response or the logs.
+- **Cost:** minutes; would have shipped a small reflection channel in the 400 body and the security log.
+- **Lesson → guardrail:** `fieldPaths.test.ts` and the sentinel-in-key cases in `guildConfigDb.test.ts`.
+
+### 2026-10-12 — step 4 item 3: the claim statement needed a single-column key, and a repo-wide prettier run touched other files
+- **Believed / generated:** (a) a first-claim-wins `INSERT ... ON CONFLICT` could sit on the existing `(admin_id, guild_id)` primary key; (b) `npx prettier --write src test` is a safe way to format only my files.
+- **Noticed by:** (a) reasoning before running anything: the old key only conflicts on the same (admin, guild) pair, so admin B's insert for A's server would simply succeed, and a "not exists, then insert" guard races; (b) `git status` showing `discordCommands.test.ts`, `reportJobMirror.db.test.ts` and `errors.test.ts` modified.
+- **Root cause:** (a) the Step 2 schema modelled many admins per server, which the new rule contradicts; (b) prettier formats everything under the paths it is given, and earlier commits were not all prettier-clean.
+- **Fix:** migration 003 makes `guild_id` the primary key (one arbiter, so `DO UPDATE ... WHERE` gives idempotence and refusal in one statement), recorded as DESIGN rev 6. The three unrelated files were restored with `git checkout`. Mutation check: dropping the `WHERE` made 4 tests fail, as they should.
+- **Cost:** minutes.
+- **Lesson → guardrail:** format only the files you touched; the concurrent-claim test and the "database refuses two owners" test pin the constraint.
+
+### 2026-10-12 — tooling (again): backticks in a double-quoted node -e string were run by the shell
+- **Believed / generated:** a comment containing backticks inside `node -e "..."` would be written literally.
+- **Noticed by:** bash errors `fields\: No such file`, and a comment in `middleware.ts` that read "/**  are field PATHS only".
+- **Root cause:** backticks inside double quotes are command substitution. Same family as the earlier heredoc entry, and I also lost a 300-line heredoc to it.
+- **Fix:** restored the comment by hand; new files go through the Write tool, multi-point edits through a small script file.
+- **Cost:** a few minutes. A lint rule for "no-loss-of-precision" also caught me writing a snowflake as a number literal in a test, the same mistake as the step 4 item 2 entry.
+- **Lesson → guardrail:** none beyond the notes.

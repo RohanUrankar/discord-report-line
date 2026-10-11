@@ -134,6 +134,22 @@ All behind the sign-in cookie; every server path is checked against the servers 
 
 To follow the log live, fetch the first page again every few seconds and merge by `id`: rows that were retrying turn into delivered, and new rows appear on top. Responses never include the interaction token, the webhook, or the report text.
 
+### Dashboard write API
+
+Every change needs the sign-in cookie AND the CSRF token in the `X-CSRF-Token` header (`401` without a session, `403` without a valid token). A change to a server the admin does not manage gets the same `404` as a server that does not exist, and writes nothing. Bad input is `400 VALIDATION_FAILED` with `error.details.fields`: field paths such as `mirrorWebhookUrl` or `config.replyMessage`, never the values.
+
+| Request                                   | Body and result                                                                                                                                                                                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/guilds`                        | Connect a server the bot is already in. Body `{ guildId }`. `200 { id, name }`. First claim wins: claiming your own server again is `200`; a server another admin manages, or one the bot has never seen, is `404`                                                        |
+| `GET /api/guilds/:guildId/settings`       | `{ postChannelId: string or null, mirrorConfigured: boolean }`                                                                                                                                                                                                            |
+| `PUT /api/guilds/:guildId/settings`       | Body `{ postChannelId?, mirrorWebhookUrl? }`; a key left out is left alone, `null` or `""` clears it. The webhook must be an `https://hooks.slack.com/services/...` URL (see `SLACK_WEBHOOK_URL_PREFIX`). Stored encrypted, never returned. Answers the same shape as GET |
+| `GET /api/guilds/:guildId/rules`          | `{ items: [{ command, enabled, customised, config }] }` for `status` and `report`; `customised: false` means the built-in default                                                                                                                                         |
+| `PUT /api/guilds/:guildId/rules/:command` | Body `{ enabled, config }`, `config` shaped as in DESIGN section 8.3. Answers the saved rule. An unknown command is `400` with field `command`                                                                                                                            |
+
+Security events (`logType: "security"`) are written for `guild.connected`, `guild.connect.denied`, `config.settings.updated`, `config.settings.rejected`, `config.rule.updated` and `config.rule.rejected`: ids and field names only, never a webhook or rule text.
+
+Connecting is not proof of Discord ownership: anyone with a dashboard account who knows the id of an unclaimed server the bot is in can claim it (DESIGN rev 6). Fine for the single throwaway admin; production would check `MANAGE_GUILD` through Discord OAuth2. Saved rules are stored now; the command path starts applying them in Step 5.
+
 ## Connect it to Discord
 
 Discord needs a public HTTPS URL, so while developing you expose your laptop with a tunnel.
