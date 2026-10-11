@@ -57,7 +57,7 @@ const checks = [
   } },
   // Signed — need the test private key matching the server's DISCORD_PUBLIC_KEY.
   { name: 'PING → 200 {"type":1}', signed: true, run: async () => {
-      const r = await sendSigned(body({ id: snowflake(), type: 1, application_id: '1', token: 'test', version: 1 }));
+      const r = await sendSigned(body({ id: snowflake(), type: 1, application_id: '900000000000000001', token: 'test', version: 1 }));
       if (r.status !== 200) return fail(r, `status ${r.status}`);
       return safeJson(r.text)?.type === 1 ? pass(r) : fail(r, `body ${truncate(r.text)}`);
   } },
@@ -145,14 +145,14 @@ process.exitCode = results.some(r => r.outcome === 'fail') ? 1 : 0;
 function command(text = 'quality bar probe') {
   return {
     id: snowflake(),
-    application_id: '1',
+    application_id: '900000000000000001',
     type: 2,
     token: `attack-${randomBytes(8).toString('hex')}`,
     version: 1,
-    guild_id: args.guild ?? '1',
-    channel_id: '1',
-    member: { user: { id: '1', username: 'quality-verifier' }, permissions: '0' },
-    data: { id: '1', name: commandName, type: 1, options: [{ name: 'text', type: 3, value: text }] },
+    guild_id: args.guild ?? '900000000000000002',
+    channel_id: '900000000000000003',
+    member: { user: { id: '900000000000000004', username: 'quality-verifier' }, permissions: '0' },
+    data: { id: '900000000000000005', name: commandName, type: 1, options: [{ name: 'text', type: 3, value: text }] },
   };
 }
 
