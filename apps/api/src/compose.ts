@@ -1,0 +1,71 @@
+import type pg from 'pg';
+
+import { AesGcmWebhookCipher } from './adapters/aesGcmWebhookCipher.js';
+import { DiscordHttpClient } from './adapters/discordHttp.js';
+import { PgJobRepository } from './adapters/pg/pgJobRepository.js';
+import { createWorkerPool } from './adapters/pg/pool.js';
+import { PgWorkerHeartbeat } from './adapters/pg/pgWorkerHeartbeat.js';
+import { SlackHttpClient } from './adapters/slackHttp.js';
+import { SystemClock } from './adapters/systemClock.js';
+import { ReportJobRunner } from './app/reportJobRunner.js';
+import { Worker } from './app/worker.js';
+import type { WorkerConfig } from './config.js';
+import type { Logger } from './ports/logger.js';
+
+export interface ComposedWorker {
+  worker: Worker;
+  /** The worker's own pool. Close it after `worker.stop()`. */
+  pool: pg.Pool;
+}
+
+/**
+ * The worker's composition root (DESIGN §8.2: no DI container, wired by hand). Everything the worker touches is
+ * built here from config: its own database pool, the Discord and Slack clients, the cipher and the runner.
+ * A server config satisfies `WorkerConfig`, so the in-process and the standalone worker share this.
+ */
+export function composeWorker(config: WorkerConfig, logger: Logger): ComposedWorker {
+  const pool = createWorkerPool(
+    {
+      connectionString: config.DATABASE_URL,
+      max: config.WORKER_DB_POOL_MAX,
+      connectionTimeoutMs: config.WORKER_DB_CONNECTION_TIMEOUT_MS,
+      statementTimeoutMs: config.WORKER_DB_STATEMENT_TIMEOUT_MS,
+      idleInTransactionTimeoutMs: config.WORKER_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+    },
+    logger,
+  );
+  const clock = new SystemClock();
+  const jobs = new PgJobRepository(pool);
+  const runner = new ReportJobRunner(
+    {
+      jobs,
+      discord: new DiscordHttpClient({
+        apiBaseUrl: config.DISCORD_API_BASE_URL,
+        botToken: config.DISCORD_BOT_TOKEN,
+        timeoutMs: config.DISCORD_TIMEOUT_MS,
+      }),
+      slack: new SlackHttpClient({
+        timeoutMs: config.SLACK_TIMEOUT_MS,
+        allowedUrlPrefix: config.SLACK_WEBHOOK_URL_PREFIX,
+      }),
+      cipher: new AesGcmWebhookCipher(config.WEBHOOK_ENC_KEY),
+      clock,
+      random: Math.random, // jitter only; nothing an attacker must not guess (security-secrets)
+    },
+    {
+      appId: config.DISCORD_APP_ID,
+      maxAttempts: config.MAX_ATTEMPTS,
+      backoffBaseMs: config.BACKOFF_BASE_MS,
+      backoffMaxMs: config.BACKOFF_MAX_MS,
+    },
+  );
+  const worker = new Worker(
+    { jobs, runner, heartbeat: new PgWorkerHeartbeat(pool), clock, logger },
+    {
+      batch: config.CLAIM_BATCH,
+      pollIntervalMs: config.POLL_INTERVAL_MS,
+      leaseMs: config.LEASE_MS,
+    },
+  );
+  return { worker, pool };
+}

@@ -6,6 +6,7 @@ import { PgStatusReader } from '../../src/adapters/pg/pgStatusReader.js';
 import { InteractionController } from '../../src/app/interactions.js';
 import { createLogger } from '../../src/http/middleware.js';
 import { createServer } from '../../src/http/server.js';
+import type { LedgerService } from '../../src/ports/ledger.js';
 import { LogSink } from './logging.js';
 import { generateTestKeypair, signRequest, unixSeconds } from './signing.js';
 
@@ -18,7 +19,16 @@ export interface Reply {
 }
 
 /** The production wiring of src/index.ts (real ledger, real status reader) around the given pool. */
-export function wire(pool: pg.Pool): { send: (payload: unknown) => Test; sink: LogSink } {
+export interface WireOptions {
+  /** Makes the ledger slower than the record timeout, to exercise the late-commit case. */
+  recordDelayMs?: number;
+  recordTimeoutMs?: number;
+}
+
+export function wire(
+  pool: pg.Pool,
+  options: WireOptions = {},
+): { send: (payload: unknown) => Test; sink: LogSink } {
   const keypair = generateTestKeypair();
   const sink = new LogSink();
   const clock = { nowMs: (): number => NOW_MS };
@@ -26,9 +36,9 @@ export function wire(pool: pg.Pool): { send: (payload: unknown) => Test; sink: L
     publicKeyHex: keypair.publicKeyHex,
     replayWindowMs: 300_000,
     statusTimeoutMs: 1500,
-    recordTimeoutMs: 1200,
+    recordTimeoutMs: options.recordTimeoutMs ?? 1200,
     clock,
-    ledger: new PgLedger(pool),
+    ledger: delayed(new PgLedger(pool), options.recordDelayMs),
     statusReader: new PgStatusReader(pool, clock),
   });
   const app = createServer({ controller, logger: createLogger('debug', sink) });
@@ -41,4 +51,17 @@ export function wire(pool: pg.Pool): { send: (payload: unknown) => Test; sink: L
       .send(body);
   };
   return { send, sink };
+}
+
+/** The real ledger, optionally made slow: the write still commits, just after the controller gave up. */
+function delayed(ledger: LedgerService, delayMs: number | undefined): LedgerService {
+  if (delayMs === undefined) {
+    return ledger;
+  }
+  return {
+    recordAndEnqueue: async (input) => {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return ledger.recordAndEnqueue(input);
+    },
+  };
 }
