@@ -35,3 +35,19 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** domain keeps the existing deny-list (which allows shared, zod and node:crypto). `architecture/docs/proposals/0004-domain-allow-list-node-crypto.md` recommends naming `node:crypto` (for signature.ts only) in §7 and then switching to a strict allow-list.
 - **Cost:** none in code. The doc contradicted itself for one revision, which cost one extra round with the architect.
 - **Lesson → guardrail:** before proposing an import rule, grep the current imports of the folder it governs. Once 0004 is accepted, the rule becomes a strict allow-list lint.
+
+### 2026-10-11 — docs/context: apps/api/CLAUDE.md names a file layout that DESIGN §7 does not have
+- **Believed / generated:** the scaffolded `apps/api/CLAUDE.md` (AI-written) says "`src/app.ts` builds the app… `src/main.ts` only bootstraps" and "`src/config/env.ts` is the only reader of `process.env`". DESIGN §7 specifies `http/server.ts` (`createServer`), `index.ts` and `config.ts`. The `security-secrets` skill also says `config/env.ts`.
+- **Noticed by:** backend-implementer, reading both before creating the Step 1 files; following the per-folder CLAUDE.md would have produced a tree that disagrees with the design and with §16's references.
+- **Root cause:** context files and skills were drafted in parallel with the design and never cross-checked on file names.
+- **Fix:** followed DESIGN §7 (the contract, per `contract-first`): `config.ts`, `http/server.ts`, `index.ts`. The stale names in `apps/api/CLAUDE.md` and the `security-secrets` skill are left for the architect (outside my write scope).
+- **Cost:** none (caught before code). Left alone it would have made two agents place the same file in two places.
+- **Lesson → guardrail:** none yet; the orchestrator should align `apps/api/CLAUDE.md` with DESIGN §7.
+
+### 2026-10-11 — tooling/hooks: the Bash guard blocked a heredoc that merely mentioned the env file
+- **Believed / generated:** I wrote `.env.example` with a shell heredoc whose first comment line said "Copy to .env". `guard-bash.mjs` refused the whole command ("Reading .env would copy secrets…") even though nothing was read.
+- **Noticed by:** the hook error message; the file was not created and the following `git commit` in the same command did not run.
+- **Root cause:** the guard matches the text `.env` anywhere in the command line, not only as a file argument. A false positive, but a safe one.
+- **Fix:** wrote the file with the Write tool (which has its own `.env.example` allowance) and reworded the comment.
+- **Cost:** one retry. No secret was at risk.
+- **Lesson → guardrail:** create env templates with Write, not shell heredocs. Hook left unchanged (it is the architect's).
