@@ -42,6 +42,7 @@ export default tseslint.config(
         'error',
         { allowNumber: true, allowBoolean: false, allowNullish: false },
       ],
+      '@typescript-eslint/unbound-method': ['error', { ignoreStatic: true }], // Validators.required
       eqeqeq: 'error',
       curly: ['error', 'all'],
       'no-console': 'error',
@@ -99,8 +100,10 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/*.spec.ts'],
+    files: ['**/*.spec.ts', 'src/testing/**/*.ts'],
     rules: {
+      '@typescript-eslint/no-unnecessary-type-parameters': 'off',
+      '@typescript-eslint/non-nullable-type-assertion-style': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/no-floating-promises': 'off',
       '@typescript-eslint/unbound-method': 'off',
