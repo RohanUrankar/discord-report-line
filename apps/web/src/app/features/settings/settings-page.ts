@@ -76,7 +76,13 @@ const SERVER_FIELD_TEXT: Readonly<Record<string, string>> = {
       flex-direction: column;
       gap: 8px;
     }
+    mat-form-field {
+      width: 100%;
+    }
     fieldset {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
       border: 0;
       padding: 0;
       margin: 0 0 16px;
@@ -88,7 +94,7 @@ const SERVER_FIELD_TEXT: Readonly<Record<string, string>> = {
       margin-bottom: 8px;
     }
     .state {
-      display: inline-flex;
+      display: flex;
       align-items: center;
       gap: 8px;
       margin: 0 0 12px;

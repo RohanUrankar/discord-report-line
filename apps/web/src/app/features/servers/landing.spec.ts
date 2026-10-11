@@ -6,6 +6,7 @@ import { query, settle, textOf } from '../../../testing/dom';
 import { GUILD_A, GUILD_B } from '../../../testing/fixtures';
 import { ApiClient } from '../../core/api/api-client';
 import { AppError } from '../../core/errors/app-error';
+import { GuildsStore } from '../../core/guilds/guilds-store';
 import { Landing } from './landing';
 
 const listGuilds = vi.fn();
@@ -51,6 +52,26 @@ describe('Landing', () => {
     await settle(fixture);
     await vi.waitFor(() => {
       expect(TestBed.inject(Router).url).toBe('/connect');
+    });
+  });
+
+  it('WHEN the shell is already loading the server list THE UI SHALL still open the first server once it arrives', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    listGuilds.mockReturnValue(new Promise((resolve) => (release = resolve)));
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideRouter([{ path: 'g/:guildId/log', children: [] }]),
+        { provide: ApiClient, useValue: { listGuilds } },
+      ],
+    });
+    void TestBed.inject(GuildsStore).load(); // what the shell does first
+    const fixture = TestBed.createComponent(Landing);
+    fixture.detectChanges();
+    release({ items: [{ id: GUILD_A, name: null }] });
+    await settle(fixture);
+    await vi.waitFor(() => {
+      expect(TestBed.inject(Router).url).toBe(`/g/${GUILD_A}/log`);
     });
   });
 

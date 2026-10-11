@@ -229,3 +229,20 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** live-update tests use an `openLive()` helper that settles with `advanceTimersByTimeAsync(0)` plus `detectChanges()`; the store derives `changed` from the result.
 - **Cost:** about ten minutes on (a).
 - **Lesson → guardrail:** the two helpers (`open` for real timers, `openLive` for fake ones) are named for what they are; the polling rules themselves are tested without a component in `polling-loop.spec.ts`.
+### 2026-10-12 — step 4 item 6 (web): the landing page never left "Finding your servers" in a real browser, with 200 green tests
+
+- **Believed / generated:** `Landing.start()` can `await guilds.load()` and then navigate to the first server; the Landing test, which mocked the API and had no shell, proved it.
+- **Noticed by:** driving the built app in Chrome against a throwaway fake API: after sign-in the page sat on the skeleton forever.
+- **Root cause:** the shell also calls `guilds.load()` on creation, so by the time Landing asked, the store was already `loading` and `load()` returned immediately; Landing then saw a status that was not `loaded` and gave up. My unit test never had the shell, so the two callers never raced.
+- **Fix:** Landing reacts to the store's status with an effect instead of awaiting its own call; "Try again" forces a reload. Regression test: the shell's load is started first, then Landing is created.
+- **Cost:** it would have been the first screen every grader saw. About ten minutes once found.
+- **Lesson → guardrail:** the regression test, and a rule I now follow: a component that depends on shared store state reacts to the store, not to its own awaited call. Also: run the production build in a real browser before saying a screen works.
+
+### 2026-10-12 — step 4 item 6 (web): my own fake server served index.html for every script, and an iframe could not show a 320px layout
+
+- **Believed / generated:** `file.startsWith(DIST)` after `path.join` on Windows, and "put the app in a 320px iframe to check reflow".
+- **Noticed by:** the page rendered nothing and `fetch('/main-*.js')` returned `text/html` (SPA fallback); then `iframe.contentDocument` was `null`.
+- **Root cause:** `path.join` produced backslashes against a forward-slash `DIST`, so every file looked "outside" the root. The iframe is blocked by the API's own `frame-ancestors 'none'`: the policy doing its job.
+- **Fix:** `path.resolve` for the root. The 320px check is therefore not browser-verified (the window could not be resized below ~958px in this session); it rests on the CSS and is listed as unverified in the report.
+- **Cost:** minutes.
+- **Lesson → guardrail:** none; the throwaway server is not committed.

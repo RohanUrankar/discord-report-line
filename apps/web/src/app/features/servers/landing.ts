@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { ROUTE, logPath } from '../../core/constants/routes.constants';
@@ -31,17 +31,22 @@ export class Landing {
   private readonly router = inject(Router);
 
   constructor() {
-    void this.start();
+    void this.guilds.load();
+    // The shell may already be loading the list, so react to the status instead of awaiting our own call.
+    effect(() => {
+      if (this.guilds.status() !== 'loaded') {
+        return;
+      }
+      const first = this.guilds.items()[0];
+      untracked(() => {
+        void this.router.navigate([first === undefined ? ROUTE.connect : logPath(first.id)], {
+          replaceUrl: true,
+        });
+      });
+    });
   }
 
-  protected async start(): Promise<void> {
-    await this.guilds.load(this.guilds.status() === 'error');
-    if (this.guilds.status() !== 'loaded') {
-      return;
-    }
-    const first = this.guilds.items()[0];
-    await this.router.navigate([first === undefined ? ROUTE.connect : logPath(first.id)], {
-      replaceUrl: true,
-    });
+  protected start(): void {
+    void this.guilds.load(true);
   }
 }

@@ -86,6 +86,8 @@ const COLUMNS = ['time', 'command', 'user', 'status', 'notification', 'attempts'
     mat-header-cell {
       min-width: 0;
       flex: 1 1 0;
+      padding: 0;
+      border-bottom-width: 0;
     }
     .mat-column-time {
       flex: 0 0 120px;
@@ -94,7 +96,7 @@ const COLUMNS = ['time', 'command', 'user', 'status', 'notification', 'attempts'
       flex: 0 0 150px;
     }
     .mat-column-user {
-      flex: 0 0 110px;
+      flex: 0 0 130px;
     }
     .mat-column-status {
       flex: 1.6 1 0;

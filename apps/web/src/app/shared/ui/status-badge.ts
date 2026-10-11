@@ -22,13 +22,14 @@ export type Tone = 'ok' | 'busy' | 'warn' | 'error' | 'neutral';
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      text-align: start;
       padding: 2px 10px 2px 8px;
       border: 1px solid var(--tone, var(--mat-sys-outline));
-      border-radius: 999px;
+      border-radius: 16px;
       background: var(--mat-sys-surface-container-low);
       color: var(--mat-sys-on-surface);
       font: var(--mat-sys-label-large);
-      white-space: nowrap;
+      white-space: normal;
     }
     app-icon {
       color: var(--tone, var(--mat-sys-on-surface-variant));
