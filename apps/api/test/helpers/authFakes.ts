@@ -1,5 +1,6 @@
 import { NodeSessionCrypto } from '../../src/adapters/nodeSessionCrypto.js';
 import { AuthService } from '../../src/app/auth.js';
+import { DashboardService } from '../../src/app/dashboard.js';
 import type { SessionCookieSettings } from '../../src/http/sessionCookie.js';
 import type {
   AdminRecord,
@@ -113,10 +114,27 @@ export function makeAuthKit(startMs = Date.UTC(2026, 9, 11, 15, 30)): AuthKit {
   return { auth, admins, sessions, hasher, clock, cookie: SECURE_COOKIE };
 }
 
-/** For tests of other routes that need a `createServer` but never sign in. */
-export function inertAuth(): { auth: AuthService; cookie: SessionCookieSettings } {
+/** A dashboard whose database is never reached: a test that touches it fails loudly. */
+export function unusedDashboard(): DashboardService {
+  const unused = (): never => {
+    throw new Error('This test did not expect the dashboard reader to be used.');
+  };
+  return new DashboardService({
+    managesGuild: unused,
+    listGuilds: unused,
+    listInteractions: unused,
+    findInteraction: unused,
+  });
+}
+
+/** For tests of other routes that need a server but never sign in. */
+export function inertAuth(): {
+  auth: AuthService;
+  cookie: SessionCookieSettings;
+  dashboard: DashboardService;
+} {
   const { auth, cookie } = makeAuthKit();
-  return { auth, cookie };
+  return { auth, cookie, dashboard: unusedDashboard() };
 }
 
 export const ADMIN_EMAIL = 'admin@example.test';

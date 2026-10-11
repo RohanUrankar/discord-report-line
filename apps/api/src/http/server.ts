@@ -1,9 +1,11 @@
 import express, { Router, type Express, type RequestHandler } from 'express';
 
 import type { AuthService } from '../app/auth.js';
+import type { DashboardService } from '../app/dashboard.js';
 import type { InteractionHandler } from '../app/interactions.js';
 import type { Logger } from '../ports/logger.js';
-import { authRouter, type AuthHttpDeps } from './authRoutes.js';
+import { authRouter } from './authRoutes.js';
+import { dashboardRouter, type DashboardHttpDeps } from './dashboardRoutes.js';
 import type { SessionCookieSettings } from './sessionCookie.js';
 import {
   contextOf,
@@ -19,9 +21,10 @@ const noStore: RequestHandler = (_req, res, next) => {
   next();
 };
 
-function apiRouter(deps: AuthHttpDeps): Router {
+function apiRouter(deps: DashboardHttpDeps): Router {
   const router = Router();
   router.use('/auth', authRouter(deps));
+  router.use(dashboardRouter(deps));
   return router;
 }
 
@@ -29,6 +32,7 @@ export interface ServerDeps {
   controller: InteractionHandler;
   logger: Logger;
   auth: AuthService;
+  dashboard: DashboardService;
   cookie: SessionCookieSettings;
   /** Reverse proxies in front of the app (0 = none), so `req.ip`, which the login throttle keys on, is real. */
   trustProxyHops?: number;
@@ -48,6 +52,7 @@ export function createServer({
   controller,
   logger,
   auth,
+  dashboard,
   cookie,
   trustProxyHops = 0,
 }: ServerDeps): Express {
@@ -84,7 +89,7 @@ export function createServer({
     '/api',
     noStore,
     express.json({ limit: MAX_API_BODY_BYTES }),
-    apiRouter({ auth, cookie, logger }),
+    apiRouter({ auth, cookie, logger, dashboard }),
   );
 
   app.use(notFoundHandler);

@@ -6,19 +6,19 @@ A Discord bot that takes reports from a server, records each one exactly once, m
 
 ## What works today
 
-| Request                                                   | Result                                                                  |
-| --------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Missing, malformed, forged or tampered signature          | `401`, no body, nothing stored                                          |
-| Correct signature but a timestamp more than 5 minutes off | `401` (replay protection)                                               |
-| PING (type 1)                                             | `200 {"type":1}`                                                        |
-| `/status`                                                 | Recorded, then an inline private reply with this server's report counts |
-| An unknown or turned-off command                          | Recorded, then a short private notice                                   |
-| The same interaction delivered again                      | Not recorded again; answered normally                                   |
-| The database is down or too slow                          | A private "we couldn't log that" notice within 3 s, never a 500         |
+| Request                                                   | Result                                                                                             |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Missing, malformed, forged or tampered signature          | `401`, no body, nothing stored                                                                     |
+| Correct signature but a timestamp more than 5 minutes off | `401` (replay protection)                                                                          |
+| PING (type 1)                                             | `200 {"type":1}`                                                                                   |
+| `/status`                                                 | Recorded, then an inline private reply with this server's report counts                            |
+| An unknown or turned-off command                          | Recorded, then a short private notice                                                              |
+| The same interaction delivered again                      | Not recorded again; answered normally                                                              |
+| The database is down or too slow                          | A private "we couldn't log that" notice within 3 s, never a 500                                    |
 | `/report text:...`                                        | Recorded with its job, then "thinking..." at once; the worker mirrors to Slack and edits the reply |
-| `/report` with no text, or over 1000 characters           | A short private notice, nothing stored                                  |
-| A button, a DM                                            | A short private notice (not recorded yet)                               |
-| `GET /healthz`                                            | `200 {"status":"ok"}`                                                   |
+| `/report` with no text, or over 1000 characters           | A short private notice, nothing stored                                                             |
+| A button, a DM                                            | A short private notice (not recorded yet)                                                          |
+| `GET /healthz`                                            | `200 {"status":"ok"}`                                                                              |
 
 ## Run it locally
 
@@ -72,40 +72,40 @@ Then:
 
 Every variable is validated at startup; a bad or missing one stops the process and names the variable (never its value). Only `.env.example` is committed.
 
-| Variable                            | Used by         | Required    | Default                       | Notes                                                                   |
-| ----------------------------------- | --------------- | ----------- | ----------------------------- | ----------------------------------------------------------------------- |
-| `DISCORD_PUBLIC_KEY`                | server          | yes         |                               | Developer Portal, General Information, Public Key (64 hex characters)   |
-| `PORT`                              | server          | no          | `3000`                        |                                                                         |
-| `LOG_LEVEL`                         | server          | no          | `info`                        | `fatal` `error` `warn` `info` `debug` `trace` `silent`                  |
-| `REPLAY_WINDOW_MS`                  | server          | no          | `300000`                      | Oldest `X-Signature-Timestamp` accepted                                 |
-| `STATUS_TIMEOUT_MS`                 | server          | no          | `1500`                        | How long `/status` waits for its counts before replying "try again"     |
-| `DATABASE_URL`                      | server, migrate | yes         |                               | `postgresql://...`. A real secret: environment only, never logged       |
-| `DATABASE_URL_TEST`                 | tests           | for tests   |                               | A separate throwaway database the tests may wipe; must differ           |
-| `POSTGRES_PASSWORD`                 | docker compose  | Docker only |                               | Password of the Compose container's `report_line` user                  |
-| `RECORD_TIMEOUT_MS`                 | server          | no          | `1200`                        | Recording + status read must together fit the 3 s window (sum max 2800) |
-| `DB_POOL_MAX`                       | server          | no          | `5`                           | Free-tier Postgres allows few connections                               |
-| `DB_CONNECTION_TIMEOUT_MS`          | server          | no          | `1000`                        | Waiting for a connection                                                |
-| `DB_STATEMENT_TIMEOUT_MS`           | server          | no          | `1500`                        | Enforced by Postgres per statement                                      |
-| `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` | server          | no          | `5000`                        | Postgres kills a session that opens a transaction and goes quiet        |
-| `DISCORD_APP_ID`                    | server, worker, register script | yes         |                               | Developer Portal, General Information, Application ID                   |
-| `DISCORD_GUILD_ID`                  | register script | yes         |                               | Your test server's ID                                                   |
-| `DISCORD_BOT_TOKEN`                 | server, worker, register script | yes         |                               | A real secret. Environment only; never logged or committed              |
-| `DISCORD_API_BASE_URL`              | register script | no          | `https://discord.com/api/v10` | Point at a stub in tests                                                |
-| `DISCORD_TIMEOUT_MS`                | worker, register script | no | `5000`                        | Per Discord call                                                        |
-| `WEBHOOK_ENC_KEY`                   | server, worker, set-mirror-webhook | yes |                  | 32 random bytes, base64. A real secret                                  |
-| `SLACK_WEBHOOK_URL_PREFIX`          | worker, set-mirror-webhook | no | `https://hooks.slack.com/services/` | Only URLs under this prefix are stored or called           |
-| `SLACK_TIMEOUT_MS`                  | worker          | no          | `5000`                        | Per Slack call                                                          |
-| `SESSION_SECRET`                    | server          | yes         |                               | 32+ random characters. A real secret: signs the per-session CSRF token |
-| `SESSION_TTL_MS`                    | server          | no          | `28800000` (8 h)              | Absolute session lifetime; no sliding renewal                           |
-| `SESSION_COOKIE_SECURE`             | server          | no          | `true`                        | Set to `false` ONLY for plain-http local development. Logged as a warning at startup |
-| `TRUST_PROXY_HOPS`                  | server          | no          | `0`                           | Reverse proxies in front (1 on Render), so login throttling sees real client IPs |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD`     | seed-admin      | for seeding |                               | The throwaway admin; password 12+ characters. `npm run seed-admin` creates it or resets its password |
-| `WORKER_MODE`                       | process         | no          | `inline`                      | `standalone` runs only the worker                                       |
-| `CLAIM_BATCH`, `POLL_INTERVAL_MS`   | worker          | no          | `5`, `1000`                   | Jobs per claim; idle poll                                               |
-| `LEASE_MS`                          | worker          | no          | `60000`                       | Must exceed three call timeouts                                         |
-| `MAX_ATTEMPTS`                      | worker          | no          | `8`                           | Passes before a job is marked dead                                      |
-| `BACKOFF_BASE_MS`, `BACKOFF_MAX_MS` | worker          | no          | `500`, `60000`                | Full-jitter backoff                                                     |
-| `WORKER_DB_POOL_MAX` and `WORKER_DB_*_TIMEOUT_MS` | worker | no | `3`, 5000, 10000, 15000 | The worker's own, looser database pool                                  |
+| Variable                                          | Used by                            | Required    | Default                             | Notes                                                                                                |
+| ------------------------------------------------- | ---------------------------------- | ----------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `DISCORD_PUBLIC_KEY`                              | server                             | yes         |                                     | Developer Portal, General Information, Public Key (64 hex characters)                                |
+| `PORT`                                            | server                             | no          | `3000`                              |                                                                                                      |
+| `LOG_LEVEL`                                       | server                             | no          | `info`                              | `fatal` `error` `warn` `info` `debug` `trace` `silent`                                               |
+| `REPLAY_WINDOW_MS`                                | server                             | no          | `300000`                            | Oldest `X-Signature-Timestamp` accepted                                                              |
+| `STATUS_TIMEOUT_MS`                               | server                             | no          | `1500`                              | How long `/status` waits for its counts before replying "try again"                                  |
+| `DATABASE_URL`                                    | server, migrate                    | yes         |                                     | `postgresql://...`. A real secret: environment only, never logged                                    |
+| `DATABASE_URL_TEST`                               | tests                              | for tests   |                                     | A separate throwaway database the tests may wipe; must differ                                        |
+| `POSTGRES_PASSWORD`                               | docker compose                     | Docker only |                                     | Password of the Compose container's `report_line` user                                               |
+| `RECORD_TIMEOUT_MS`                               | server                             | no          | `1200`                              | Recording + status read must together fit the 3 s window (sum max 2800)                              |
+| `DB_POOL_MAX`                                     | server                             | no          | `5`                                 | Free-tier Postgres allows few connections                                                            |
+| `DB_CONNECTION_TIMEOUT_MS`                        | server                             | no          | `1000`                              | Waiting for a connection                                                                             |
+| `DB_STATEMENT_TIMEOUT_MS`                         | server                             | no          | `1500`                              | Enforced by Postgres per statement                                                                   |
+| `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`               | server                             | no          | `5000`                              | Postgres kills a session that opens a transaction and goes quiet                                     |
+| `DISCORD_APP_ID`                                  | server, worker, register script    | yes         |                                     | Developer Portal, General Information, Application ID                                                |
+| `DISCORD_GUILD_ID`                                | register script                    | yes         |                                     | Your test server's ID                                                                                |
+| `DISCORD_BOT_TOKEN`                               | server, worker, register script    | yes         |                                     | A real secret. Environment only; never logged or committed                                           |
+| `DISCORD_API_BASE_URL`                            | register script                    | no          | `https://discord.com/api/v10`       | Point at a stub in tests                                                                             |
+| `DISCORD_TIMEOUT_MS`                              | worker, register script            | no          | `5000`                              | Per Discord call                                                                                     |
+| `WEBHOOK_ENC_KEY`                                 | server, worker, set-mirror-webhook | yes         |                                     | 32 random bytes, base64. A real secret                                                               |
+| `SLACK_WEBHOOK_URL_PREFIX`                        | worker, set-mirror-webhook         | no          | `https://hooks.slack.com/services/` | Only URLs under this prefix are stored or called                                                     |
+| `SLACK_TIMEOUT_MS`                                | worker                             | no          | `5000`                              | Per Slack call                                                                                       |
+| `SESSION_SECRET`                                  | server                             | yes         |                                     | 32+ random characters. A real secret: signs the per-session CSRF token                               |
+| `SESSION_TTL_MS`                                  | server                             | no          | `28800000` (8 h)                    | Absolute session lifetime; no sliding renewal                                                        |
+| `SESSION_COOKIE_SECURE`                           | server                             | no          | `true`                              | Set to `false` ONLY for plain-http local development. Logged as a warning at startup                 |
+| `TRUST_PROXY_HOPS`                                | server                             | no          | `0`                                 | Reverse proxies in front (1 on Render), so login throttling sees real client IPs                     |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`                   | seed-admin                         | for seeding |                                     | The throwaway admin; password 12+ characters. `npm run seed-admin` creates it or resets its password |
+| `WORKER_MODE`                                     | process                            | no          | `inline`                            | `standalone` runs only the worker                                                                    |
+| `CLAIM_BATCH`, `POLL_INTERVAL_MS`                 | worker                             | no          | `5`, `1000`                         | Jobs per claim; idle poll                                                                            |
+| `LEASE_MS`                                        | worker                             | no          | `60000`                             | Must exceed three call timeouts                                                                      |
+| `MAX_ATTEMPTS`                                    | worker                             | no          | `8`                                 | Passes before a job is marked dead                                                                   |
+| `BACKOFF_BASE_MS`, `BACKOFF_MAX_MS`               | worker                             | no          | `500`, `60000`                      | Full-jitter backoff                                                                                  |
+| `WORKER_DB_POOL_MAX` and `WORKER_DB_*_TIMEOUT_MS` | worker                             | no          | `3`, 5000, 10000, 15000             | The worker's own, looser database pool                                                               |
 
 ### Worker, Slack mirror and fallback
 
@@ -121,6 +121,18 @@ The fallback goes to the server's notification channel if one is set, otherwise 
 4. Re-run `npm run register-commands` so `/report` exists, then run `npm run db:migrate`.
 
 Changing `WEBHOOK_ENC_KEY` makes stored webhooks unreadable; set them again.
+
+### Dashboard read API
+
+All behind the sign-in cookie; every server path is checked against the servers the signed-in admin manages. A server that is not theirs, does not exist, or is not even an id all get the same `404`.
+
+| Request                                                        | Result                                                                                                                                                                                   |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/guilds`                                              | `{ items: [{ id, name }] }`: only servers this admin manages                                                                                                                             |
+| `GET /api/guilds/:guildId/interactions?limit=&cursor=&status=` | `{ items, nextCursor }`, newest first. `limit` 1 to 100 (default 50); `cursor` is the previous `nextCursor` (opaque); `status` is a job status (`pending`, `processing`, `done`, `dead`) |
+| `GET /api/guilds/:guildId/interactions/:id`                    | The same row plus `attemptHistory`: every outbound call the worker made                                                                                                                  |
+
+To follow the log live, fetch the first page again every few seconds and merge by `id`: rows that were retrying turn into delivered, and new rows appear on top. Responses never include the interaction token, the webhook, or the report text.
 
 ## Connect it to Discord
 

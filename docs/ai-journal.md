@@ -139,3 +139,19 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** started it with `pg_ctl ... -p 5433` (the call blocks on the log handle in this tool, so the process was left running).
 - **Cost:** a few minutes. Not a code problem.
 - **Lesson → guardrail:** none; a "start the test database" npm script would help (follow-up).
+
+### 2026-10-12 — step 4 item 2 (tenant guard + read API): a snowflake overflowed my own test, and a regex edit ate a file
+- **Believed / generated:** (a) the pagination test built ids with `String(900000000000000500 + n)`; (b) to add `dashboard` to `inertAuth()` I rewrote the tail of `test/helpers/authFakes.ts` with a `[\s\S]*$` regex replace.
+- **Noticed by:** (a) `duplicate key value violates unique constraint "interaction_pkey"` from the 25-row seed; (b) `tsc` reporting `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `addAdmin` no longer exported.
+- **Root cause:** (a) 900000000000000500 is above 2^53, so adjacent integers collapse to the same double; this is the exact reason snowflakes are strings in the design, and I did it in a test. (b) `[\s\S]*$` matched to end of file, and three exports that followed `inertAuth` went with it.
+- **Fix:** ids built with `BigInt`; the three exports re-appended from `git show HEAD:`.
+- **Cost:** minutes. Neither reached production code.
+- **Lesson → guardrail:** never do arithmetic on id-shaped numbers in JS (use BigInt or SQL); never replace "to end of file" in an edit script, anchor both ends.
+
+### 2026-10-12 — step 4 item 2: my first mutation of the tenant SQL was invalid, so it proved nothing
+- **Believed / generated:** removing `AND ag.admin_id = $1` from the log query would show whether the SQL second lock is tested.
+- **Noticed by:** 14 tests failed, but all with Postgres "could not determine data type of parameter $1", not with leaked rows.
+- **Root cause:** an unused bind parameter is a SQL error, so the mutant died for the wrong reason.
+- **Fix:** mutated to `AND $1::uuid IS NOT NULL` instead; now exactly the two adapter-level tests (`pgDashboardReader.test.ts`) fail, and the HTTP tests stay green because TenantGuard still protects them.
+- **Cost:** a few minutes. It also showed the HTTP tests alone cannot prove the second lock, which is why the adapter test exists.
+- **Lesson → guardrail:** check WHY a mutant died before counting it as killed.

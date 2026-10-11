@@ -4,6 +4,7 @@ import { Argon2PasswordHasher } from './adapters/argon2PasswordHasher.js';
 import { AesGcmWebhookCipher } from './adapters/aesGcmWebhookCipher.js';
 import { DiscordHttpClient } from './adapters/discordHttp.js';
 import { NodeSessionCrypto } from './adapters/nodeSessionCrypto.js';
+import { PgDashboardReader } from './adapters/pg/pgDashboardReader.js';
 import { PgAdminRepository } from './adapters/pg/pgAdminRepository.js';
 import { PgJobRepository } from './adapters/pg/pgJobRepository.js';
 import { PgSessionRepository } from './adapters/pg/pgSessionRepository.js';
@@ -12,6 +13,7 @@ import { PgWorkerHeartbeat } from './adapters/pg/pgWorkerHeartbeat.js';
 import { SlackHttpClient } from './adapters/slackHttp.js';
 import { SystemClock } from './adapters/systemClock.js';
 import { AuthService } from './app/auth.js';
+import { DashboardService } from './app/dashboard.js';
 import { ReportJobRunner } from './app/reportJobRunner.js';
 import { Worker } from './app/worker.js';
 import type { ServerConfig, WorkerConfig } from './config.js';
@@ -101,4 +103,9 @@ export function composeAuth(
     ),
     cookie: { secure: config.SESSION_COOKIE_SECURE, ttlMs: config.SESSION_TTL_MS },
   };
+}
+
+/** The dashboard's read side (tenant-scoped log and server list), on the request pool. */
+export function composeDashboard(pool: pg.Pool): DashboardService {
+  return new DashboardService(new PgDashboardReader(pool));
 }

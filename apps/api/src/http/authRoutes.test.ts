@@ -8,6 +8,7 @@ import {
   addAdmin,
   makeAuthKit,
   TEST_TTL_MS,
+  unusedDashboard,
   type AuthKit,
 } from '../../test/helpers/authFakes.js';
 import { LogSink } from '../../test/helpers/logging.js';
@@ -33,6 +34,7 @@ async function setup(options: { secure?: boolean } = {}): Promise<{
     controller: unusedController,
     logger: createLogger('debug', sink),
     auth: kit.auth,
+    dashboard: unusedDashboard(),
     cookie,
   });
   return { kit, sink, app };

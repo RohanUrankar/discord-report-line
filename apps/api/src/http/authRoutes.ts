@@ -3,7 +3,8 @@ import { Router, type Request, type RequestHandler } from 'express';
 
 import type { AuthService, AuthenticatedAdmin } from '../app/auth.js';
 import type { Logger } from '../ports/logger.js';
-import { contextOf, sendApiError } from './middleware.js';
+import { sendApiError } from './middleware.js';
+import { securityEvent } from './securityEvent.js';
 import {
   clearSessionCookie,
   readSessionCookie,
@@ -30,20 +31,6 @@ export function adminOf(req: Request): AuthenticatedAdmin {
     throw new Error('adminOf() used on a route without requireSession.');
   }
   return admin;
-}
-
-/**
- * Who did what, and did it work (observability skill). Ids and short reason codes only: no email, no password,
- * no cookie. `src` is the client address, kept for the audit trail.
- */
-function securityEvent(
-  req: Request,
-  logger: Logger,
-  level: 'info' | 'warn',
-  event: string,
-  fields: { result: 'success' | 'failed'; reason?: string; adminId?: string },
-): void {
-  contextOf(req, logger).log[level]({ logType: 'security', event, src: req.ip, ...fields }, event);
 }
 
 /** Every `/api` route behind login uses this: 401 without a live session, otherwise `adminOf(req)` works. */

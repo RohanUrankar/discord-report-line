@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { PgAdminRepository } from '../adapters/pg/pgAdminRepository.js';
 import { Argon2PasswordHasher } from '../adapters/argon2PasswordHasher.js';
 import { seedAdmin } from '../app/seedAdmin.js';
-import { composeAuth } from '../compose.js';
+import { composeAuth, composeDashboard } from '../compose.js';
 import { ManualClock, TEST_SESSION_SECRET, TEST_TTL_MS } from '../../test/helpers/authFakes.js';
 import { truncateAll, useTestDatabase } from '../../test/helpers/db.js';
 import { createLogger } from './middleware.js';
@@ -33,6 +33,7 @@ function app(clock: ManualClock): ReturnType<typeof createServer> {
     controller: { handle: () => Promise.resolve({ status: 401 }) },
     logger: createLogger('silent', new LogSink()),
     auth,
+    dashboard: composeDashboard(getPool()),
     cookie,
   });
 }
