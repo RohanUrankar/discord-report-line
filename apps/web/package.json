@@ -1,0 +1,41 @@
+{
+  "name": "@report-line/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve",
+    "build": "ng build",
+    "typecheck": "ngc -p tsconfig.app.json --noEmit && ngc -p tsconfig.spec.json --noEmit",
+    "lint": "eslint .",
+    "test": "ng test --no-watch"
+  },
+  "dependencies": {
+    "@angular/cdk": "21.2.14",
+    "@angular/common": "21.2.25",
+    "@angular/compiler": "21.2.25",
+    "@angular/core": "21.2.25",
+    "@angular/forms": "21.2.25",
+    "@angular/material": "21.2.14",
+    "@angular/platform-browser": "21.2.25",
+    "@angular/router": "21.2.25",
+    "@report-line/shared": "*",
+    "rxjs": "7.8.2",
+    "tslib": "2.8.1"
+  },
+  "devDependencies": {
+    "@angular/build": "21.2.25",
+    "@angular/cli": "21.2.25",
+    "@angular/compiler-cli": "21.2.25",
+    "@eslint/js": "10.0.1",
+    "angular-eslint": "21.4.0",
+    "axe-core": "4.11.0",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "jsdom": "28.1.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1",
+    "vitest": "4.1.11"
+  }
+}

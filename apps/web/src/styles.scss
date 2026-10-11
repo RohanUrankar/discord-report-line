@@ -1,0 +1,129 @@
+@use '@angular/material' as mat;
+
+// One Material 3 theme. `color-scheme: light dark` follows the operating system; the M3 mixin emits
+// light-dark() values, so both themes come from this single block. No web fonts are loaded: the type
+// stack is the system's own, so the page makes no request outside this origin (CSP font-src 'self').
+html {
+  color-scheme: light dark;
+  @include mat.theme(
+    (
+      color: mat.$azure-palette,
+      typography: (
+        plain-family: (
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          'Helvetica Neue',
+          Arial,
+          sans-serif,
+        ),
+        brand-family: (
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          'Helvetica Neue',
+          Arial,
+          sans-serif,
+        ),
+        bold-weight: 700,
+        medium-weight: 600,
+        regular-weight: 400,
+      ),
+      density: 0,
+    )
+  );
+  @include mat.strong-focus-indicators();
+  @include mat.strong-focus-indicators-theme(mat.$azure-palette);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+  min-width: 320px;
+  overflow-wrap: anywhere;
+}
+
+h1 {
+  font: var(--mat-sys-headline-small);
+  margin: 0 0 4px;
+}
+
+h2 {
+  font: var(--mat-sys-title-medium);
+  margin: 0 0 8px;
+}
+
+p {
+  margin: 0 0 12px;
+}
+
+a {
+  color: var(--mat-sys-primary);
+}
+
+code {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--mat-sys-surface-container-high);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+// Programmatic focus lands on headings after navigation; the ring would be noise there.
+h1[tabindex='-1']:focus {
+  outline: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.page-lead {
+  color: var(--mat-sys-on-surface-variant);
+  margin-bottom: 16px;
+}
+
+.muted {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.reference {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// Motion is decoration here; people who ask for less get none.
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

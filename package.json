@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "packages/shared",
-    "apps/api"
+    "apps/api",
+    "apps/web"
   ],
   "engines": {
     "node": ">=22.12.0"
