@@ -43,7 +43,29 @@ describe('migrations', () => {
       await client.end();
     }
     const ledger = await db().query<{ filename: string }>('SELECT filename FROM schema_migrations');
-    expect(ledger.rows.map((row) => row.filename)).toEqual(['001_init.sql']);
+    expect(ledger.rows.map((row) => row.filename)).toEqual([
+      '001_init.sql',
+      '002_job_payload_heartbeat.sql',
+    ]);
+  });
+
+  it('SHALL give every job a payload (default empty object) and keep one heartbeat table for the worker', async () => {
+    const columns = await db().query<{
+      column_name: string;
+      is_nullable: string;
+      column_default: string | null;
+    }>(
+      `SELECT column_name, is_nullable, column_default FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'job' AND column_name = 'payload'`,
+    );
+    expect(columns.rows).toEqual([
+      { column_name: 'payload', is_nullable: 'NO', column_default: "'{}'::jsonb" },
+    ]);
+    const beat = await db().query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'worker_heartbeat' ORDER BY column_name`,
+    );
+    expect(beat.rows).toEqual([{ column_name: 'beat_at' }, { column_name: 'id' }]);
   });
 
   it('WHEN a migration fails THE SYSTEM SHALL roll back that file, keep earlier ones and name the file', async () => {

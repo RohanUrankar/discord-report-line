@@ -6,6 +6,7 @@ export const MESSAGES = {
   notRecorded: "We couldn't log that right now. Please try again in a minute.",
   statusUnavailable: "We couldn't check the status right now. Please try again in a minute.",
   emptyReport: 'Your report needs some text. Try `/report text: the printer is jammed`.',
+  reportTooLong: 'Your report is too long. Keep it under 1,000 characters and try again.',
   mirrorFailed:
     "⚠️ The team notification didn't go through. A server admin can see why on the dashboard.",
   modalTitle: 'Report a problem',
@@ -21,4 +22,5 @@ export const ACTION_SUMMARIES = {
   status: 'Showed the status counts.',
   disabled: 'Replied that the command is turned off.',
   unknown_command: 'Replied that the command is not recognised.',
+  report: 'Logged a report.',
 } as const;

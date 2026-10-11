@@ -20,8 +20,8 @@ const INSERT_ACTION = `
   VALUES ($1, $2, $3, $4, $5)`;
 
 const INSERT_JOB = `
-  INSERT INTO job (interaction_id, guild_id, kind, interaction_token, token_expires_at)
-  VALUES ($1, $2, $3, $4, $5)`;
+  INSERT INTO job (interaction_id, guild_id, kind, interaction_token, token_expires_at, payload)
+  VALUES ($1, $2, $3, $4, $5, $6::jsonb)`;
 
 /** Postgres implementation of the ledger: dedupe + outbox on one checked-out connection. */
 export class PgLedger implements LedgerService {
@@ -77,6 +77,7 @@ export class PgLedger implements LedgerService {
         job.kind,
         job.interactionToken,
         job.tokenExpiresAt,
+        JSON.stringify(job.payload),
       ]);
     }
     return 'won';

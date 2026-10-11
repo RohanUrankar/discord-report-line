@@ -7,17 +7,13 @@ type CommandDecision = Extract<RouteDecision, { kind: 'command' }>;
 
 /**
  * The ledger record for a command that is answered inline: status `answered`, mirror `skipped`, no job
- * (DESIGN §9, §11.2). Returns undefined for an action that is not answered inline; `report` is recorded
- * with its job in Step 3, when it can be deferred.
+ * (DESIGN §9, §11.2). A deferred `report` is recorded with its job by reportRecord.ts instead.
  */
 export function answeredRecord(
   interactionId: string,
   decision: CommandDecision,
-  action: Action,
-): RecordInput | undefined {
-  if (action.type === 'report') {
-    return undefined;
-  }
+  action: Exclude<Action, { type: 'report' }>,
+): RecordInput {
   return {
     interaction: {
       id: interactionId,

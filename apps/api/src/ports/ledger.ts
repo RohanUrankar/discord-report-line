@@ -1,3 +1,4 @@
+import type { ReportJobPayload } from '../domain/reportJob.js';
 import type { ActionType, InteractionStatus, JobKind, MirrorStatus } from '../domain/types.js';
 
 /** The interaction row. `id` is Discord's interaction id and the dedupe key (DESIGN §9). */
@@ -29,6 +30,8 @@ export interface EnqueuedJob {
   kind: JobKind;
   interactionToken: string;
   tokenExpiresAt: Date;
+  /** The rule snapshot and report the worker needs (DESIGN §9). Holds no credential. */
+  payload: ReportJobPayload;
 }
 
 export interface RecordInput {

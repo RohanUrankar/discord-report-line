@@ -13,7 +13,7 @@ export const pingPayload = {
   version: 1,
 };
 
-export function commandPayload(name: string): Record<string, unknown> {
+export function commandPayload(name: string, options?: unknown[]): Record<string, unknown> {
   return {
     id: INTERACTION_ID,
     application_id: '900000000000000005',
@@ -22,8 +22,13 @@ export function commandPayload(name: string): Record<string, unknown> {
     guild_id: GUILD_ID,
     channel_id: CHANNEL_ID,
     member: { user: { id: USER_ID } },
-    data: { id: '900000000000000006', name, type: 1 },
+    data: { id: '900000000000000006', name, type: 1, ...(options ? { options } : {}) },
   };
+}
+
+/** `/report text:...` as Discord sends it: one STRING option (type 3). */
+export function reportPayload(text: string, id: string = INTERACTION_ID): Record<string, unknown> {
+  return { ...commandPayload('report', [{ name: 'text', type: 3, value: text }]), id };
 }
 
 /** A command run in a DM: no guild_id and no member, only `user`. */

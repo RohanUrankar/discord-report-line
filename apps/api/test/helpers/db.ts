@@ -58,9 +58,9 @@ export async function prepareTestDatabase(): Promise<pg.Pool> {
   return pool;
 }
 
-/** Between tests. CASCADE follows the foreign keys, so guild and admin cover every other table. */
+/** Between tests. CASCADE follows the foreign keys, so guild and admin cover every table but the heartbeat. */
 export async function truncateAll(pool: pg.Pool): Promise<void> {
-  await pool.query('TRUNCATE guild, admin CASCADE');
+  await pool.query('TRUNCATE guild, admin, worker_heartbeat CASCADE');
 }
 
 /** A pool aimed at a port nothing listens on: the database is "down". */

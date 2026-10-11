@@ -41,6 +41,15 @@ export function jobFixture(overrides: Partial<EnqueuedJob> = {}): EnqueuedJob {
     kind: 'report',
     interactionToken: FAKE_INTERACTION_TOKEN,
     tokenExpiresAt: new Date(Date.now() + 15 * 60_000),
+    payload: {
+      text: 'the printer is jammed',
+      userId: USER_ID,
+      channelId: CHANNEL_ID,
+      ephemeral: true,
+      replyMessage: 'Report logged. The team has been notified.',
+      mirror: true,
+      tag: false,
+    },
     ...overrides,
   };
 }

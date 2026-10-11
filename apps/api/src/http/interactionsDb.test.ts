@@ -7,6 +7,7 @@ import {
   GUILD_ID,
   INTERACTION_ID,
   commandPayload,
+  reportPayload,
 } from '../../test/helpers/payloads.js';
 import { NOW_MS, wire, type Reply } from '../../test/helpers/pgApp.js';
 
@@ -18,6 +19,63 @@ const db = useTestDatabase();
 
 const countRows = async (pool: pg.Pool, table: 'interaction' | 'action' | 'job'): Promise<number> =>
   (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table}`)).rows[0]?.n ?? -1;
+
+describe('POST /interactions with real Postgres: /report', () => {
+  it('WHEN /report text:... runs THE SYSTEM SHALL defer and leave interaction, action and job (with token, expiry and payload) committed', async () => {
+    const pool = db();
+    await truncateAll(pool);
+    const { send, sink } = wire(pool);
+
+    const res = await send(reportPayload('the printer is jammed')).expect(200);
+
+    expect(res.body).toEqual({ type: 5, data: { flags: 64 } });
+    const job = await pool.query<{
+      status: string;
+      interaction_token: string;
+      token_expires_at: Date;
+      payload: { text: string; ephemeral: boolean };
+    }>('SELECT status, interaction_token, token_expires_at, payload FROM job');
+    expect(job.rows).toHaveLength(1);
+    expect(job.rows[0]).toMatchObject({
+      status: 'pending',
+      interaction_token: FAKE_INTERACTION_TOKEN,
+      payload: { text: 'the printer is jammed', ephemeral: true },
+    });
+    expect(job.rows[0]?.token_expires_at.getTime()).toBe(NOW_MS + 870_000);
+    const interaction = await pool.query('SELECT status FROM interaction');
+    expect(interaction.rows).toEqual([{ status: 'deferred' }]);
+    const action = await pool.query('SELECT type, mirror_status FROM action');
+    expect(action.rows).toEqual([{ type: 'report', mirror_status: 'pending' }]);
+    expect(sink.text()).not.toContain(FAKE_INTERACTION_TOKEN);
+  });
+
+  it('WHEN the same /report is delivered 10 times concurrently THE SYSTEM SHALL create one row, one job and defer every delivery', async () => {
+    const pool = db();
+    await truncateAll(pool);
+    const { send } = wire(pool);
+
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, () => send(reportPayload('same report'))),
+    );
+
+    expect(new Set(responses.map((res) => res.text)).size).toBe(1);
+    expect((responses[0]?.body as Reply).type).toBe(5);
+    expect(await countRows(pool, 'interaction')).toBe(1);
+    expect(await countRows(pool, 'action')).toBe(1);
+    expect(await countRows(pool, 'job')).toBe(1);
+  });
+
+  it('WHEN /report has no text THE SYSTEM SHALL record nothing', async () => {
+    const pool = db();
+    await truncateAll(pool);
+    const { send } = wire(pool);
+
+    const res = await send(commandPayload('report')).expect(200);
+
+    expect((res.body as Reply).data.content).toContain('/report');
+    expect(await countRows(pool, 'interaction')).toBe(0);
+  });
+});
 
 describe('POST /interactions with real Postgres', () => {
   it('WHEN /status runs THE SYSTEM SHALL record it as answered, with its action, before replying', async () => {

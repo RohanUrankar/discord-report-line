@@ -16,6 +16,7 @@ import {
   componentPayload,
   dmCommandPayload,
   pingPayload,
+  reportPayload,
 } from '../../test/helpers/payloads.js';
 import { LogSink } from '../../test/helpers/logging.js';
 import {
@@ -67,6 +68,7 @@ class FakeLedger implements LedgerService {
 function harness(
   behaviour: () => Promise<StatusCounts> = () => Promise.resolve(IDLE_COUNTS),
   ledgerBehaviour: () => Promise<RecordOutcome> = () => Promise.resolve('won'),
+  onJobEnqueued?: () => void,
 ) {
   const keypair = generateTestKeypair();
   const sink = new LogSink();
@@ -81,6 +83,7 @@ function harness(
     clock: { nowMs: () => NOW_MS },
     ledger,
     statusReader: reader,
+    ...(onJobEnqueued ? { onJobEnqueued } : {}),
   });
   const app = createServer({ controller, logger });
 
@@ -460,10 +463,144 @@ describe('POST /interactions: recording before replying', () => {
   });
 });
 
+describe('POST /interactions: /report with text', () => {
+  const DEFER_EPHEMERAL = { type: 5, data: { flags: EPHEMERAL } };
+
+  it('WHEN /report text:... runs THE SYSTEM SHALL record interaction, action and job, then defer with the rule visibility', async () => {
+    const { signedPost, ledger } = harness();
+
+    const res = await signedPost(reportPayload('  the printer is jammed  ')).expect(200);
+
+    expect(res.body).toEqual(DEFER_EPHEMERAL);
+    expect(ledger.inputs).toHaveLength(1);
+    const [input] = ledger.inputs;
+    expect(input?.interaction).toMatchObject({
+      id: INTERACTION_ID,
+      guildId: GUILD_ID,
+      commandName: 'report',
+      status: 'deferred',
+    });
+    expect(input?.action).toEqual({
+      type: 'report',
+      summary: ACTION_SUMMARIES.report,
+      mirrorStatus: 'pending',
+    });
+    expect(input?.job?.kind).toBe('report');
+    expect(input?.job?.interactionToken).toBe(FAKE_INTERACTION_TOKEN);
+    expect(input?.job?.payload).toEqual({
+      text: 'the printer is jammed',
+      userId: USER_ID,
+      channelId: CHANNEL_ID,
+      ephemeral: true,
+      replyMessage: 'Report logged. The team has been notified.',
+      mirror: true,
+      tag: false,
+    });
+  });
+
+  it('SHALL expire the stored token 14 minutes 30 seconds after the request arrived', async () => {
+    const { signedPost, ledger } = harness();
+
+    await signedPost(reportPayload('x')).expect(200);
+
+    expect(ledger.inputs[0]?.job?.tokenExpiresAt.getTime()).toBe(NOW_MS + 14.5 * 60_000);
+  });
+
+  it('WHEN the deferred reply is recorded THE SYSTEM SHALL nudge the worker once', async () => {
+    let nudges = 0;
+    const { signedPost } = harness(undefined, undefined, () => {
+      nudges += 1;
+    });
+
+    await signedPost(reportPayload('x')).expect(200);
+
+    expect(nudges).toBe(1);
+  });
+
+  it('WHEN the interaction is a duplicate THE SYSTEM SHALL give the same defer and not nudge the worker', async () => {
+    let nudges = 0;
+    const { signedPost } = harness(
+      undefined,
+      () => Promise.resolve('duplicate'),
+      () => {
+        nudges += 1;
+      },
+    );
+
+    const res = await signedPost(reportPayload('x')).expect(200);
+
+    expect(res.body).toEqual(DEFER_EPHEMERAL);
+    expect(nudges).toBe(0);
+  });
+
+  it.each([
+    ['no text option', commandPayload('report'), MESSAGES.emptyReport],
+    ['only whitespace', reportPayload('   \n '), MESSAGES.emptyReport],
+    [
+      'a non-string text value',
+      commandPayload('report', [{ name: 'text', type: 3, value: 7 }]),
+      MESSAGES.emptyReport,
+    ],
+    ['1001 characters', reportPayload('a'.repeat(1001)), MESSAGES.reportTooLong],
+  ])(
+    'WHEN /report has %s THE SYSTEM SHALL answer with an ephemeral notice and record nothing',
+    async (_name, payload, notice) => {
+      const { signedPost, ledger } = harness();
+
+      const res = await signedPost(payload).expect(200);
+
+      expect(replyOf(res)).toMatchObject({ type: 4, data: { content: notice, flags: EPHEMERAL } });
+      expect(ledger.inputs).toEqual([]);
+    },
+  );
+
+  it('WHEN the report is exactly 1000 characters THE SYSTEM SHALL accept it', async () => {
+    const { signedPost, ledger } = harness();
+
+    const res = await signedPost(reportPayload('é'.repeat(1000))).expect(200);
+
+    expect((res.body as { type: number }).type).toBe(5);
+    expect(ledger.inputs).toHaveLength(1);
+  });
+
+  it('WHEN the ledger write fails THE SYSTEM SHALL say the report was not logged and not defer', async () => {
+    let nudges = 0;
+    const { signedPost } = harness(
+      undefined,
+      () => Promise.reject(new Error('db down')),
+      () => {
+        nudges += 1;
+      },
+    );
+
+    const res = await signedPost(reportPayload('x')).expect(200);
+
+    expect(replyOf(res)).toMatchObject({
+      type: 4,
+      data: { content: MESSAGES.notRecorded, flags: EPHEMERAL },
+    });
+    expect(nudges).toBe(0);
+  });
+
+  it('WHEN recording is slower than the record timeout THE SYSTEM SHALL answer notRecorded within the budget', async () => {
+    const slow = () =>
+      new Promise<RecordOutcome>((resolve) => {
+        setTimeout(() => {
+          resolve('won');
+        }, RECORD_TIMEOUT_MS * 4);
+      });
+    const { signedPost } = harness(undefined, slow);
+
+    const res = await signedPost(reportPayload('x')).expect(200);
+
+    expect(replyOf(res).data.content).toBe(MESSAGES.notRecorded);
+  });
+});
+
 describe('POST /interactions: other interactions', () => {
   it.each([
     ['an unknown command', commandPayload('nonsense'), MESSAGES.unknownCommand],
-    ['/report, which is not registered yet', commandPayload('report'), MESSAGES.unknownCommand],
+    ['/report with no text', commandPayload('report'), MESSAGES.emptyReport],
     [
       'a button click, which is not built yet',
       componentPayload('rpt:ack:1'),

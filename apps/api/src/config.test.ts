@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import { ConfigError, loadMigrateConfig, loadRegisterConfig, loadServerConfig } from './config.js';
+import {
+  ConfigError,
+  loadMigrateConfig,
+  loadRegisterConfig,
+  loadServerConfig,
+  loadWebhookScriptConfig,
+  loadWorkerConfig,
+  loadWorkerMode,
+} from './config.js';
 
 const PUBLIC_KEY = 'ab'.repeat(32);
 const DATABASE_URL = 'postgresql://user:password@localhost:5432/example';
-const REQUIRED = { DISCORD_PUBLIC_KEY: PUBLIC_KEY, DATABASE_URL };
+const ENC_KEY = Buffer.alloc(32, 7).toString('base64');
+const WORKER_REQUIRED = {
+  DATABASE_URL,
+  DISCORD_APP_ID: '123456789012345678',
+  DISCORD_BOT_TOKEN: 'placeholder-bot-token',
+  WEBHOOK_ENC_KEY: ENC_KEY,
+};
+const REQUIRED = { DISCORD_PUBLIC_KEY: PUBLIC_KEY, ...WORKER_REQUIRED };
 
 describe('loadServerConfig', () => {
   it('applies defaults when only the required variables are set', () => {
@@ -21,12 +36,53 @@ describe('loadServerConfig', () => {
       DB_CONNECTION_TIMEOUT_MS: 1000,
       DB_STATEMENT_TIMEOUT_MS: 1500,
       DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: 5000,
+      DISCORD_APP_ID: '123456789012345678',
+      DISCORD_BOT_TOKEN: 'placeholder-bot-token',
+      WEBHOOK_ENC_KEY: ENC_KEY,
+      DISCORD_API_BASE_URL: 'https://discord.com/api/v10',
+      DISCORD_TIMEOUT_MS: 5000,
+      SLACK_TIMEOUT_MS: 5000,
+      SLACK_WEBHOOK_URL_PREFIX: 'https://hooks.slack.com/services/',
+      WORKER_MODE: 'inline',
+      CLAIM_BATCH: 5,
+      POLL_INTERVAL_MS: 1000,
+      LEASE_MS: 60_000,
+      MAX_ATTEMPTS: 8,
+      BACKOFF_BASE_MS: 500,
+      BACKOFF_MAX_MS: 60_000,
+      WORKER_DB_POOL_MAX: 3,
+      WORKER_DB_CONNECTION_TIMEOUT_MS: 5000,
+      WORKER_DB_STATEMENT_TIMEOUT_MS: 10_000,
+      WORKER_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: 15_000,
     });
   });
 
   it('fails fast naming every missing variable', () => {
     expect(() => loadServerConfig({})).toThrow(ConfigError);
     expect(() => loadServerConfig({})).toThrow(/DISCORD_PUBLIC_KEY.*DATABASE_URL/);
+  });
+
+  it.each(['DISCORD_APP_ID', 'DISCORD_BOT_TOKEN', 'WEBHOOK_ENC_KEY'])(
+    'refuses to start without %s',
+    (name) => {
+      expect(() => loadServerConfig({ ...REQUIRED, [name]: undefined })).toThrow(name);
+    },
+  );
+
+  it.each([
+    ['not base64', '!!!!'],
+    ['16 bytes', Buffer.alloc(16, 1).toString('base64')],
+    ['33 bytes', Buffer.alloc(33, 1).toString('base64')],
+  ])('rejects a WEBHOOK_ENC_KEY that is %s, without echoing it', (_label, key) => {
+    const attempt = () => loadServerConfig({ ...REQUIRED, WEBHOOK_ENC_KEY: key });
+    expect(attempt).toThrow(/WEBHOOK_ENC_KEY/);
+    expect(attempt).not.toThrow(key);
+  });
+
+  it('rejects a lease that does not outlast three call timeouts', () => {
+    expect(() =>
+      loadServerConfig({ ...REQUIRED, LEASE_MS: '10000', DISCORD_TIMEOUT_MS: '5000' }),
+    ).toThrow(/LEASE_MS/);
   });
 
   it('requires a postgres connection URL and never echoes it', () => {
@@ -97,5 +153,38 @@ describe('loadMigrateConfig', () => {
   it('needs only the database URL', () => {
     expect(loadMigrateConfig({ DATABASE_URL })).toEqual({ DATABASE_URL });
     expect(() => loadMigrateConfig({})).toThrow(/DATABASE_URL/);
+  });
+});
+
+describe('loadWorkerConfig', () => {
+  it('needs no public key, because the standalone worker serves no HTTP', () => {
+    const config = loadWorkerConfig(WORKER_REQUIRED);
+    expect(config.WORKER_MODE).toBe('inline');
+    expect(config.CLAIM_BATCH).toBe(5);
+  });
+
+  it('fails fast naming the missing worker variables', () => {
+    expect(() => loadWorkerConfig({ DATABASE_URL })).toThrow(
+      /DISCORD_APP_ID, DISCORD_BOT_TOKEN, WEBHOOK_ENC_KEY/,
+    );
+  });
+});
+
+describe('loadWorkerMode', () => {
+  it('defaults to inline and accepts standalone', () => {
+    expect(loadWorkerMode({})).toBe('inline');
+    expect(loadWorkerMode({ WORKER_MODE: 'standalone' })).toBe('standalone');
+  });
+
+  it('rejects anything else', () => {
+    expect(() => loadWorkerMode({ WORKER_MODE: 'both' })).toThrow(/WORKER_MODE/);
+  });
+});
+
+describe('loadWebhookScriptConfig', () => {
+  it('needs the database, the key and defaults to the Slack prefix', () => {
+    const config = loadWebhookScriptConfig({ DATABASE_URL, WEBHOOK_ENC_KEY: ENC_KEY });
+    expect(config.SLACK_WEBHOOK_URL_PREFIX).toBe('https://hooks.slack.com/services/');
+    expect(() => loadWebhookScriptConfig({ DATABASE_URL })).toThrow(/WEBHOOK_ENC_KEY/);
   });
 });

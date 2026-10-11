@@ -73,6 +73,18 @@ describe('PgLedger.recordAndEnqueue', () => {
     ]);
   });
 
+  it('WHEN a job is enqueued THE SYSTEM SHALL store its payload in the same transaction, without the token', async () => {
+    const pool = db();
+    await truncateAll(pool);
+    const input = reportInput();
+
+    await new PgLedger(pool).recordAndEnqueue(input);
+
+    const job = await pool.query<{ payload: unknown }>('SELECT payload FROM job');
+    expect(job.rows[0]?.payload).toEqual(input.job?.payload);
+    expect(JSON.stringify(job.rows[0]?.payload)).not.toContain(FAKE_INTERACTION_TOKEN);
+  });
+
   it('WHEN no job is given THE SYSTEM SHALL record the interaction and action and enqueue nothing', async () => {
     const pool = db();
     await truncateAll(pool);

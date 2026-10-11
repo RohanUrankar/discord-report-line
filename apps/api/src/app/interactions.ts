@@ -1,5 +1,5 @@
 import type { InteractionResponse } from '../domain/discordProtocol.js';
-import { message, pong } from '../domain/discordResponses.js';
+import { deferMessage, message, pong } from '../domain/discordResponses.js';
 import { errorLogFields } from '../domain/errorFields.js';
 import { MESSAGES } from '../domain/messages.js';
 import { statusText } from '../domain/status.js';
@@ -14,11 +14,12 @@ import { evaluate } from '../domain/rules.js';
 import { isTimestampFresh, verifySignature } from '../domain/signature.js';
 import type { Action } from '../domain/types.js';
 import type { Clock } from '../ports/clock.js';
-import type { LedgerService, RecordInput } from '../ports/ledger.js';
+import type { LedgerService, RecordInput, RecordOutcome } from '../ports/ledger.js';
 import type { Logger } from '../ports/logger.js';
 import type { StatusReader } from '../ports/status.js';
 import { answeredRecord } from './answeredRecord.js';
 import { withDeadline } from './deadline.js';
+import { deferredReportRecord, readReportText } from './reportRecord.js';
 
 /** What the HTTP layer hands over: the three signed inputs, exactly as received. */
 export interface InboundInteraction {
@@ -43,6 +44,8 @@ export interface InteractionControllerOptions {
   clock: Clock;
   ledger: LedgerService;
   statusReader: StatusReader;
+  /** Called after a job was committed, so an in-process worker need not wait for its next poll. */
+  onJobEnqueued?: () => void;
 }
 
 /** What the HTTP layer depends on (DIP): the controller below, or a fake in tests. */
@@ -98,7 +101,7 @@ export class InteractionController implements InteractionHandler {
         log.info({}, 'interaction.ping');
         return pong();
       case 'command':
-        return this.respondToCommand(interaction.id, decision, log);
+        return this.respondToCommand(interaction, decision, log);
       case 'component':
       case 'modalSubmit':
         // Buttons and modals arrive in Step 5. Until then nothing registers them, so say so honestly.
@@ -110,27 +113,71 @@ export class InteractionController implements InteractionHandler {
   }
 
   private async respondToCommand(
-    interactionId: string,
+    interaction: RawInteraction,
     decision: Extract<RouteDecision, { kind: 'command' }>,
     log: Logger,
   ): Promise<InteractionResponse> {
     log.info({ command: decision.name, guild_id: decision.tenant.guildId }, 'interaction.received');
-    // Step 1 has no rule store: every command is enabled with its default config (DESIGN §8.3).
+    // No rule store yet: every command is enabled with its default config (DESIGN §8.3).
     const action = evaluate(decision.name, { enabled: true }, null);
-    const record = answeredRecord(interactionId, decision, action);
+    if (action.type === 'report') {
+      return this.deferReport(interaction, decision, action, log);
+    }
     // Persist before we answer (CLAUDE.md). If we cannot, say so: a fake success would be a lost command.
-    if (record !== undefined && !(await this.record(record, log))) {
+    const outcome = await this.record(answeredRecord(interaction.id, decision, action), log);
+    if (outcome === 'failed') {
       return message(MESSAGES.notRecorded, { ephemeral: true });
     }
     return this.replyFor(action, decision.tenant.guildId, log);
   }
 
   /**
-   * Dedupe + outbox write, bounded by the record timeout. True when the interaction is safely in the
-   * ledger, which includes "another delivery already recorded it": that one still gets a normal reply
-   * and is not recorded again. False means nothing can be promised.
+   * /report with text (DESIGN §5.2): record interaction, action and job in one transaction, then defer.
+   * Nothing slow runs here; the worker mirrors to Slack and edits the deferred reply (CLAUDE.md, 3 s clock).
    */
-  private async record(input: RecordInput, log: Logger): Promise<boolean> {
+  private async deferReport(
+    interaction: RawInteraction,
+    decision: Extract<RouteDecision, { kind: 'command' }>,
+    action: Extract<Action, { type: 'report' }>,
+    log: Logger,
+  ): Promise<InteractionResponse> {
+    const text = readReportText(decision.options);
+    if (!text.ok) {
+      const notice = text.reason === 'empty' ? MESSAGES.emptyReport : MESSAGES.reportTooLong;
+      return message(notice, { ephemeral: true });
+    }
+    // Discord always sends a token with a command. Without one there is nothing to answer later.
+    if (interaction.token === undefined) {
+      log.warn({}, 'interaction.token_missing');
+      return message(MESSAGES.notRecorded, { ephemeral: true });
+    }
+    const outcome = await this.record(
+      deferredReportRecord({
+        interactionId: interaction.id,
+        interactionToken: interaction.token,
+        receivedAtMs: this.options.clock.nowMs(),
+        decision,
+        action,
+        text: text.text,
+      }),
+      log,
+    );
+    if (outcome === 'failed') {
+      return message(MESSAGES.notRecorded, { ephemeral: true });
+    }
+    if (outcome === 'won') {
+      this.options.onJobEnqueued?.();
+    }
+    return deferMessage({ ephemeral: action.ephemeral });
+  }
+
+  /**
+   * Dedupe + outbox write, bounded by the record timeout. 'won' and 'duplicate' both mean the interaction is
+   * safely in the ledger: a duplicate still gets a normal reply and is not recorded again. 'failed' means
+   * nothing can be promised. A write that is merely slow may still commit after we gave up: the user is then
+   * told it was not logged, and the worker later edits that message with the result (DESIGN §9, rev 5).
+   */
+  private async record(input: RecordInput, log: Logger): Promise<RecordOutcome | 'failed'> {
     try {
       const outcome = await withDeadline(
         this.options.ledger.recordAndEnqueue(input),
@@ -139,16 +186,16 @@ export class InteractionController implements InteractionHandler {
       if (outcome === 'duplicate') {
         log.info({}, 'interaction.duplicate');
       }
-      return true;
+      return outcome;
     } catch (error) {
       // Name and code only: a database error's message can quote the row, and a job row holds the token.
       log.error(errorLogFields(error), 'ledger.record_failed');
-      return false;
+      return 'failed';
     }
   }
 
   private async replyFor(
-    action: Action,
+    action: Exclude<Action, { type: 'report' }>,
     guildId: string,
     log: Logger,
   ): Promise<InteractionResponse> {
@@ -158,8 +205,6 @@ export class InteractionController implements InteractionHandler {
       case 'disabled':
         return message(MESSAGES.disabled, { ephemeral: true });
       case 'unknown_command':
-      case 'report':
-        // /report is not registered until Step 3; if it arrives anyway it is treated as unknown.
         return message(MESSAGES.unknownCommand, { ephemeral: true });
     }
   }
