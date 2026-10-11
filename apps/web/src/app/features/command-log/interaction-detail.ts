@@ -27,10 +27,12 @@ import {
   describeAttempt,
   describeNotification,
   describeRow,
+  describeTag,
   isReplyDeliveredNotificationFailed,
   type AttemptPresentation,
   type Presentation,
   type RowStatus,
+  type TagPresentation,
 } from './log-labels';
 
 const NOT_FOUND_MESSAGE = "We couldn't find that command in this server.";
@@ -49,14 +51,13 @@ interface DetailVm {
   readonly notification: Presentation | null;
   readonly time: string;
   readonly user: string;
-  readonly tag: string | null;
+  readonly tag: TagPresentation | null;
   readonly deliveredButNotNotified: boolean;
   readonly summary: string;
   readonly attempts: readonly AttemptVm[];
 }
 
 function toVm(detail: InteractionDetail): DetailVm {
-  const tag = detail.action?.llmTag ?? null;
   return {
     detail,
     command: commandLabel(detail),
@@ -64,7 +65,7 @@ function toVm(detail: InteractionDetail): DetailVm {
     notification: describeNotification(detail),
     time: absoluteTime(detail.createdAt),
     user: `User ${shortId(detail.userId)}`,
-    tag: tag === null || tag === 'untagged' ? null : tag,
+    tag: describeTag(detail),
     deliveredButNotNotified: isReplyDeliveredNotificationFailed(detail),
     summary: deadNotificationSummary(detail),
     attempts: detail.attemptHistory.map((attempt) => ({
@@ -267,9 +268,11 @@ function toVm(detail: InteractionDetail): DetailVm {
                   None for this command
                 }
               </dd>
-              @if (v.tag) {
-                <dt>Tag</dt>
-                <dd>{{ v.tag }}</dd>
+              @if (v.tag; as t) {
+                <dt>AI tag</dt>
+                <dd>
+                  <app-status-badge [tone]="t.tone" [icon]="t.icon" [label]="t.label" />
+                </dd>
               }
               @if (v.detail.job; as job) {
                 <dt>Attempts</dt>

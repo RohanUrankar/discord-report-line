@@ -6,6 +6,7 @@ import {
   describeAttempt,
   describeNotification,
   describeRow,
+  describeTag,
   isReplyDeliveredNotificationFailed,
 } from './log-labels';
 
@@ -107,8 +108,9 @@ describe('describeNotification', () => {
     ['skipped', 'Not needed'],
   ] as const)('shows mirror status %s as "%s"', (mirrorStatus, label) => {
     expect(
-      describeNotification(logItem(1, { action: { type: 'report', mirrorStatus, llmTag: null, tagState: 'off' } }))
-        ?.label,
+      describeNotification(
+        logItem(1, { action: { type: 'report', mirrorStatus, llmTag: null, tagState: 'off' } }),
+      )?.label,
     ).toBe(label);
   });
 
@@ -116,7 +118,12 @@ describe('describeNotification', () => {
     expect(
       describeNotification(
         logItem(1, {
-          action: { type: 'report', mirrorStatus: 'pending', llmTag: null, tagState: 'off' as const },
+          action: {
+            type: 'report',
+            mirrorStatus: 'pending',
+            llmTag: null,
+            tagState: 'off' as const,
+          },
           job: job('dead', 8),
         }),
       )?.label,
@@ -169,7 +176,7 @@ describe('attempt wording', () => {
     ],
     [
       { target: 'tag', outcome: 'fatal', httpStatus: 400 },
-      'The AI service rejected the request (HTTP 400).',
+      'The AI tag could not be obtained, so the report is shown as not tagged. The notification was not held up.',
     ],
     [{ target: 'mirror', outcome: 'success', httpStatus: 200 }, 'Done.'],
   ] as const)('explains %j', (input, text) => {
@@ -204,5 +211,35 @@ describe('dead notification summary', () => {
 
   it('does not apply to a done job', () => {
     expect(isReplyDeliveredNotificationFailed(logItem(1))).toBe(false);
+  });
+});
+
+describe('describeTag', () => {
+  const item = (
+    tagState: 'tagged' | 'untagged' | 'pending' | 'off',
+    llmTag: string | null,
+    type = 'report',
+  ) => ({ action: { type, mirrorStatus: 'sent', llmTag, tagState } }) as never;
+
+  it('gives each state its own state, icon and wording', () => {
+    const all = [
+      describeTag(item('tagged', 'outage')),
+      describeTag(item('untagged', 'untagged')),
+      describeTag(item('pending', null)),
+      describeTag(item('off', null)),
+    ];
+    expect(all.map((t) => t?.state)).toEqual(['tagged', 'untagged', 'pending', 'off']);
+    expect(new Set(all.map((t) => t?.label)).size).toBe(4);
+    expect(new Set(all.map((t) => t?.icon)).size).toBe(4);
+    expect(all[0]).toMatchObject({ label: 'Tag: outage', text: 'outage' });
+  });
+
+  it('treats a tagged state without a real tag as untagged rather than showing an empty tag', () => {
+    expect(describeTag(item('tagged', null))?.state).toBe('untagged');
+  });
+
+  it('says nothing for a command that is not a report and for no action', () => {
+    expect(describeTag(item('off', null, 'status'))).toBeNull();
+    expect(describeTag({ action: null })).toBeNull();
   });
 });

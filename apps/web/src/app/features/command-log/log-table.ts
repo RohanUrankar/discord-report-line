@@ -22,8 +22,10 @@ import {
   commandLabel,
   describeNotification,
   describeRow,
+  describeTag,
   type Presentation,
   type RowStatus,
+  type TagPresentation,
 } from './log-labels';
 
 interface RowVm {
@@ -33,10 +35,10 @@ interface RowVm {
   readonly user: string;
   readonly status: RowStatus;
   readonly notification: Presentation | null;
-  readonly tag: string | null;
+  readonly tag: TagPresentation | null;
 }
 
-const COLUMNS = ['time', 'command', 'user', 'status', 'notification', 'attempts'] as const;
+const COLUMNS = ['time', 'command', 'user', 'status', 'notification', 'tag', 'attempts'] as const;
 
 /**
  * The command log as a real table (roles: table, row, columnheader, cell). Below 720px each row becomes a
@@ -104,6 +106,9 @@ const COLUMNS = ['time', 'command', 'user', 'status', 'notification', 'attempts'
     .mat-column-notification {
       flex: 1 1 0;
     }
+    .mat-column-tag {
+      flex: 1 1 0;
+    }
     .mat-column-attempts {
       flex: 0 0 80px;
     }
@@ -121,11 +126,6 @@ const COLUMNS = ['time', 'command', 'user', 'status', 'notification', 'attempts'
     }
     a {
       color: var(--mat-sys-primary);
-    }
-    .tag {
-      display: block;
-      font: var(--mat-sys-body-small);
-      color: var(--mat-sys-on-surface-variant);
     }
     .none {
       color: var(--mat-sys-on-surface-variant);
@@ -183,12 +183,7 @@ const COLUMNS = ['time', 'command', 'user', 'status', 'notification', 'attempts'
       <ng-container matColumnDef="command">
         <mat-header-cell *matHeaderCellDef>Command</mat-header-cell>
         <mat-cell *matCellDef="let row" data-label="Command">
-          <span>
-            {{ row.command }}
-            @if (row.tag; as tagText) {
-              <span class="tag">Tag: {{ tagText }}</span>
-            }
-          </span>
+          <span>{{ row.command }}</span>
         </mat-cell>
       </ng-container>
 
@@ -215,6 +210,19 @@ const COLUMNS = ['time', 'command', 'user', 'status', 'notification', 'attempts'
         <mat-cell *matCellDef="let row" data-label="Notification">
           @if (row.notification; as n) {
             <app-status-badge [tone]="n.tone" [icon]="n.icon" [label]="n.label" />
+          } @else {
+            <span class="none"
+              ><span aria-hidden="true">&mdash;</span><span class="sr-only">None</span></span
+            >
+          }
+        </mat-cell>
+      </ng-container>
+
+      <ng-container matColumnDef="tag">
+        <mat-header-cell *matHeaderCellDef>AI tag</mat-header-cell>
+        <mat-cell *matCellDef="let row" data-label="AI tag">
+          @if (row.tag; as t) {
+            <app-status-badge [tone]="t.tone" [icon]="t.icon" [label]="t.label" />
           } @else {
             <span class="none"
               ><span aria-hidden="true">&mdash;</span><span class="sr-only">None</span></span
@@ -261,14 +269,9 @@ export class LogTable {
       user: `User ${shortId(item.userId)}`,
       status: describeRow(item),
       notification: describeNotification(item),
-      tag: visibleTag(item),
+      tag: describeTag(item),
     })),
   );
 
   protected readonly trackById = (_index: number, row: RowVm): string => row.item.id;
-}
-
-function visibleTag(item: InteractionLogItem): string | null {
-  const tag = item.action?.llmTag ?? null;
-  return tag === null || tag === 'untagged' ? null : tag;
 }

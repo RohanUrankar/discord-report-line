@@ -5,6 +5,7 @@ import type {
   AttemptView,
   InteractionLogItem,
   MirrorStatus,
+  TagState,
 } from '@report-line/shared';
 
 import type { IconName } from '../../shared/ui/icons';
@@ -115,6 +116,51 @@ export function commandLabel(item: Pick<InteractionLogItem, 'command' | 'action'
   return (item.action && CLICK_LABEL[item.action.type]) ?? 'Button click';
 }
 
+/**
+ * The AI tag of a report as words, an icon and a tone, one distinct reading per `tagState` (DESIGN §11.3).
+ * `text` is the tag itself when there is one; it is always rendered by interpolation, never as HTML.
+ * Null when there is nothing to say: no action, or a command that is not a report (a tag never applies).
+ */
+export interface TagPresentation extends Presentation {
+  readonly state: TagState;
+  readonly text: string | null;
+}
+
+const TAG_UNTAGGED: TagPresentation = {
+  state: 'untagged',
+  text: null,
+  label: 'Not tagged: the AI could not tag this',
+  icon: 'warning',
+  tone: 'warn',
+};
+
+export function describeTag(item: Pick<InteractionLogItem, 'action'>): TagPresentation | null {
+  const action = item.action;
+  if (action === null || (action.tagState === 'off' && action.type !== 'report')) {
+    return null;
+  }
+  const tag = action.llmTag;
+  switch (action.tagState) {
+    case 'tagged':
+      if (tag !== null && tag !== 'untagged') {
+        return { state: 'tagged', text: tag, label: `Tag: ${tag}`, icon: 'sell', tone: 'neutral' };
+      }
+      return TAG_UNTAGGED;
+    case 'untagged':
+      return TAG_UNTAGGED;
+    case 'pending':
+      return { state: 'pending', text: null, label: 'Tag pending', icon: 'schedule', tone: 'busy' };
+    case 'off':
+      return {
+        state: 'off',
+        text: null,
+        label: 'AI tagging is off',
+        icon: 'info',
+        tone: 'neutral',
+      };
+  }
+}
+
 const TARGET_LABEL: Record<AttemptTarget, string> = {
   tag: 'AI tagging',
   mirror: 'Slack notification',
@@ -149,6 +195,9 @@ export function attemptReason(
   const { target, outcome, httpStatus } = attempt;
   if (outcome === 'success') {
     return 'Done.';
+  }
+  if (target === 'tag') {
+    return 'The AI tag could not be obtained, so the report is shown as not tagged. The notification was not held up.';
   }
   const service = TARGET_SERVICE[target];
   if (httpStatus === null) {

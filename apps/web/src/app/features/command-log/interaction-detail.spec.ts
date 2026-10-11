@@ -58,6 +58,82 @@ const openLive = async (): Promise<RouterTestingHarness> => {
   return harness;
 };
 
+const reportWithTag = (
+  llmTag: string | null,
+  tagState: 'tagged' | 'untagged' | 'pending' | 'off',
+) => {
+  const item = logItem(7);
+  return { ...item, action: { ...item.action!, llmTag, tagState } } as typeof item;
+};
+
+describe('InteractionDetailPage: AI tag', () => {
+  beforeEach(() => {
+    getInteraction.mockReset();
+    configure();
+  });
+
+  const tagText = (harness: RouterTestingHarness): string => {
+    const dt = queryAll(harness.fixture, 'dt').find((d) => textOf(d) === 'AI tag')!;
+    return textOf(dt.nextElementSibling as HTMLElement);
+  };
+
+  it.each([
+    ['bug', 'tagged', 'Tag: bug'],
+    ['untagged', 'untagged', 'Not tagged: the AI could not tag this'],
+    [null, 'pending', 'Tag pending'],
+    [null, 'off', 'AI tagging is off'],
+  ] as const)('WHEN the tag is %s/%s THE UI SHALL show "%s"', async (llmTag, tagState, text) => {
+    getInteraction.mockResolvedValue(detail(reportWithTag(llmTag, tagState)));
+    const harness = await open();
+    expect(tagText(harness)).toBe(text);
+  });
+
+  it('WHEN a tag looks like HTML THE UI SHALL render it as text', async () => {
+    const evil = '<img src=x onerror="window.__pwned = 1">';
+    getInteraction.mockResolvedValue({
+      ...detail(reportWithTag('bug', 'tagged')),
+      action: { type: 'report', mirrorStatus: 'sent', llmTag: evil, tagState: 'tagged' },
+    });
+    const harness = await open();
+    expect(tagText(harness)).toBe(`Tag: ${evil}`);
+    expect(root(harness.fixture).querySelector('img')).toBeNull();
+  });
+
+  it('WHEN tagging failed THE UI SHALL show the tag attempt in the timeline with its reason', async () => {
+    getInteraction.mockResolvedValue(
+      detail(reportWithTag('untagged', 'untagged'), [
+        attempt({
+          attemptNo: 1,
+          target: 'tag',
+          outcome: 'fatal',
+          httpStatus: null,
+          error: 'The AI answered with something we could not use',
+        }),
+        attempt({ attemptNo: 1, target: 'mirror', outcome: 'success', httpStatus: 200 }),
+      ]),
+    );
+    const harness = await open();
+    const items = queryAll(harness.fixture, 'ol.timeline > li');
+    expect(textOf(items[0])).toContain('Attempt 1: AI tagging');
+    expect(textOf(items[0])).toContain('Failed, gave up');
+    expect(textOf(items[0])).toContain('shown as not tagged');
+    expect(textOf(items[0])).not.toContain('did not answer in time');
+    expect(textOf(items[0])).toContain('Detail: The AI answered with something we could not use');
+  });
+
+  it('WHEN tagging worked THE UI SHALL show a succeeded tag attempt', async () => {
+    getInteraction.mockResolvedValue(
+      detail(reportWithTag('bug', 'tagged'), [
+        attempt({ attemptNo: 1, target: 'tag', outcome: 'success', httpStatus: 200 }),
+      ]),
+    );
+    const harness = await open();
+    const item = queryAll(harness.fixture, 'ol.timeline > li')[0]!;
+    expect(textOf(item)).toContain('AI tagging');
+    expect(textOf(item)).toContain('Succeeded');
+  });
+});
+
 describe('InteractionDetailPage', () => {
   beforeEach(() => {
     getInteraction.mockReset();

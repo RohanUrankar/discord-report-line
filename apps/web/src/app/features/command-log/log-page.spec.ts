@@ -57,6 +57,66 @@ const openLive = async (): Promise<RouterTestingHarness> => {
   return harness;
 };
 
+const withTag = (
+  n: number,
+  llmTag: string | null,
+  tagState: 'tagged' | 'untagged' | 'pending' | 'off',
+  type: 'report' | 'status' = 'report',
+) => {
+  const item = logItem(n, {
+    command: type,
+    action: { type, mirrorStatus: 'sent', llmTag: null, tagState },
+  });
+  // Set after parsing so a value the schema would refuse (hostile-looking text) still reaches the view.
+  return { ...item, action: { ...item.action!, llmTag } } as typeof item;
+};
+
+describe('LogPage: AI tag column', () => {
+  beforeEach(() => {
+    listInteractions.mockReset();
+    configure();
+  });
+
+  it('WHEN each tag state occurs THE UI SHALL word it differently, with an icon, not colour alone', async () => {
+    listInteractions.mockResolvedValue(
+      logPage([
+        withTag(4, 'bug', 'tagged'),
+        withTag(3, 'untagged', 'untagged'),
+        withTag(2, null, 'pending'),
+        withTag(1, null, 'off'),
+      ]),
+    );
+    const harness = await open();
+    const cells = queryAll(harness.fixture, 'mat-cell[data-label="AI tag"]');
+    expect(cells.map((c) => textOf(c))).toEqual([
+      'Tag: bug',
+      'Not tagged: the AI could not tag this',
+      'Tag pending',
+      'AI tagging is off',
+    ]);
+    for (const cell of cells) {
+      expect(cell.querySelector('svg')).not.toBeNull();
+    }
+  });
+
+  it('WHEN the command is not a report and tagging is off THE UI SHALL show no tag state', async () => {
+    listInteractions.mockResolvedValue(logPage([withTag(1, null, 'off', 'status')]));
+    const harness = await open();
+    const cell = queryAll(harness.fixture, 'mat-cell[data-label="AI tag"]')[0]!;
+    expect(textOf(cell)).toBe('—None');
+  });
+
+  it('WHEN a tag looks like HTML THE UI SHALL render it as text', async () => {
+    const evil = '<img src=x onerror="window.__pwned = 1"><script>window.__pwned = 1</script>';
+    listInteractions.mockResolvedValue({ items: [withTag(1, evil, 'tagged')], nextCursor: null });
+    const harness = await open();
+    expect(textOf(harness.fixture)).toContain(`Tag: ${evil}`);
+    expect(root(harness.fixture).querySelector('img')).toBeNull();
+    expect(root(harness.fixture).querySelector('script')).toBeNull();
+    expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
+  });
+});
+
 describe('LogPage', () => {
   beforeEach(() => {
     listInteractions.mockReset();
@@ -112,7 +172,15 @@ describe('LogPage', () => {
     listInteractions.mockResolvedValue(logPage([logItem(2), logItem(1)]));
     const harness = await open();
     const headers = queryAll(harness.fixture, '[role="columnheader"]').map((h) => textOf(h));
-    expect(headers).toEqual(['Time', 'Command', 'User', 'Status', 'Notification', 'Attempts']);
+    expect(headers).toEqual([
+      'Time',
+      'Command',
+      'User',
+      'Status',
+      'Notification',
+      'AI tag',
+      'Attempts',
+    ]);
     const rows = queryAll(harness.fixture, 'mat-row');
     expect(rows).toHaveLength(2);
     const link = rows[0]!.querySelector('a')!;
