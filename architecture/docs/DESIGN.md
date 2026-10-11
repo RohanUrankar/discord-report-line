@@ -676,6 +676,11 @@ erDiagram
         timestamptz next_run_at
         timestamptz claimed_at
         text last_error
+        jsonb payload
+    }
+    WORKER_HEARTBEAT {
+        text id PK
+        timestamptz beat_at
     }
     JOB_ATTEMPT {
         uuid id PK
