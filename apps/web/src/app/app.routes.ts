@@ -38,6 +38,14 @@ export const routes: Routes = [
             title: 'Command log',
             loadComponent: () => import('./features/command-log/log-page').then((m) => m.LogPage),
           },
+          {
+            path: 'log/:interactionId',
+            title: 'Command details',
+            loadComponent: () =>
+              import('./features/command-log/interaction-detail').then(
+                (m) => m.InteractionDetailPage,
+              ),
+          },
         ],
       },
       {
