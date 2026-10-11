@@ -2,7 +2,7 @@
 
 A Discord bot that takes reports from a server, records each one exactly once, mirrors it to a team channel, and shows an admin dashboard of what happened. Built as a Node.js + TypeScript + Express API, an Angular dashboard and PostgreSQL. The design lives in [`architecture/docs/DESIGN.md`](architecture/docs/DESIGN.md); the rules every change must respect are in [`CLAUDE.md`](CLAUDE.md).
 
-**Status: build step 3 of 6 (the core loop).** `/report text:...` is recorded, deferred within 3 s, mirrored to Slack by a background worker and answered by editing the deferred reply. Failed calls are retried with backoff, and a dead interaction token falls back to a channel post. Step 5 adds the form (modal) and rules read at runtime; the processed reply carries Acknowledge and Escalate buttons.
+**Status: build step 5 of 6 (form, buttons and rules as data).** `/report text:...` is recorded, deferred within 3 s, mirrored to Slack by a background worker and answered by editing the deferred reply. Failed calls are retried with backoff, and a dead interaction token falls back to a channel post. Step 5 adds the form (modal) and rules read at runtime; the processed reply carries Acknowledge and Escalate buttons.
 
 ## What works today
 
@@ -152,7 +152,14 @@ Every change needs the sign-in cookie AND the CSRF token in the `X-CSRF-Token` h
 
 Security events (`logType: "security"`) are written for `guild.connected`, `guild.connect.denied`, `config.settings.updated`, `config.settings.rejected`, `config.rule.updated` and `config.rule.rejected`: ids and field names only, never a webhook or rule text.
 
-Connecting is not proof of Discord ownership: anyone with a dashboard account who knows the id of an unclaimed server the bot is in can claim it (DESIGN rev 6). Fine for the single throwaway admin; production would check `MANAGE_GUILD` through Discord OAuth2. Saved rules are stored now; the command path starts applying them in Step 5.
+Connecting is not proof of Discord ownership: anyone with a dashboard account who knows the id of an unclaimed server the bot is in can claim it (DESIGN rev 6). Fine for the single throwaway admin; production would check `MANAGE_GUILD` through Discord OAuth2. Saved rules are applied by the bot on every command (see below).
+
+### Form, buttons and rules
+
+- **Form.** `/report` with no `text` opens a form. Submitting it is a fresh interaction: it is validated again on the server (trimmed, 1 to 1000 characters), recorded as a `/report` and processed by the same worker path as the text option. A rejected submit stores nothing. Opening the form stores nothing either.
+- **Buttons.** The processed reply carries **Acknowledge** and **Escalate**. A click is verified, deduplicated on its own id, checked against the server it came from, and answered by updating the message in place. A report moves `reported` → `acknowledged` → `escalated` (or straight to `escalated`); nothing moves back, and an out-of-date button gets a private notice. **Escalate only records and shows the state: it sends nothing to Slack or anyone else.** Any member of the server may click; with the default private reply that is only the reporter, so set `ephemeral` to `false` in the rule if a team should act on reports.
+- **Rules.** Each command's rule (reply wording, private or public, Slack mirror, on or off) is read from the database on every command. A saved rule is validated strictly; a stored rule that no longer validates is logged as `rule.invalid_stored` (field names only) and the built-in default is used. A report keeps the rule it was started with, even if the rule is edited before the worker finishes. Turning `/report` off also turns off its form and its buttons.
+- Needs migration `004_report_click_actions.sql` (`npm run db:migrate`).
 
 ## Connect it to Discord
 
