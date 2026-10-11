@@ -6,7 +6,9 @@ export {
   JobKind,
   JobStatus,
   MirrorStatus,
+  ReportTag,
   TagFallback,
+  TagState,
 } from './enums.js';
 export {
   DEFAULT_RULES,

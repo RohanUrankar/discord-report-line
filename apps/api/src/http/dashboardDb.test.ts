@@ -242,7 +242,7 @@ describe('dashboard read API: the live log', () => {
         command: 'status',
         userId: '900000000000000003',
         interactionStatus: 'answered',
-        action: { type: 'status', mirrorStatus: 'skipped', llmTag: null },
+        action: { type: 'status', mirrorStatus: 'skipped', llmTag: null, tagState: 'off' },
         job: null,
       },
     ]);

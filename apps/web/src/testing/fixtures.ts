@@ -41,7 +41,7 @@ export function logItem(
     command: 'report',
     userId: USER_ID,
     interactionStatus: 'followed_up',
-    action: { type: 'report', mirrorStatus: 'sent', llmTag: null },
+    action: { type: 'report', mirrorStatus: 'sent', llmTag: null, tagState: 'off' },
     job: { status: 'done', attempts: 1, lastError: null },
     ...overrides,
   });

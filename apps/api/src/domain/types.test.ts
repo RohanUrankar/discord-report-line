@@ -13,6 +13,8 @@ describe('domain/types re-exports', () => {
     'ActionType',
     'MirrorStatus',
     'TagFallback',
+    'ReportTag',
+    'TagState',
   ] as const)('%s is the same list as @report-line/shared (one source, no copy)', (name) => {
     expect(types[name]).toBe(shared[name]);
   });

@@ -7,6 +7,9 @@ import {
   InteractionStatus,
   JobStatus,
   MirrorStatus,
+  ReportTag,
+  TagFallback,
+  TagState,
 } from './enums.js';
 
 // Read API of the dashboard (DESIGN §2.3, §10.4). Every response schema is an explicit allow-list of fields:
@@ -55,8 +58,13 @@ const ActionView = z
   .object({
     type: z.enum(ActionType),
     mirrorStatus: z.enum(MirrorStatus),
-    /** Null until the tagging step ran; `untagged` when it was off or failed. */
-    llmTag: z.string().nullable(),
+    /**
+     * A `ReportTag`, `untagged` (tagging failed), or null (no tag: off or not run yet). Always in this set:
+     * a stored value outside it is reported as `untagged`. Read `tagState` to tell the cases apart.
+     */
+    llmTag: z.union([z.enum(ReportTag), z.literal(TagFallback)]).nullable(),
+    /** `tagged`, `untagged` (failed), `pending` (job has not tagged yet) or `off` (disabled or not a report). */
+    tagState: z.enum(TagState),
   })
   .strict();
 

@@ -55,6 +55,10 @@ describe('loadServerConfig', () => {
       DISCORD_TIMEOUT_MS: 5000,
       SLACK_TIMEOUT_MS: 5000,
       SLACK_WEBHOOK_URL_PREFIX: 'https://hooks.slack.com/services/',
+      LLM_ENABLED: false,
+      GEMINI_MODEL: 'gemini-3.5-flash-lite',
+      GEMINI_API_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta',
+      GEMINI_TIMEOUT_MS: 8000,
       WORKER_MODE: 'inline',
       CLAIM_BATCH: 5,
       POLL_INTERVAL_MS: 1000,
@@ -137,6 +141,50 @@ describe('loadServerConfig', () => {
     expect(() => loadServerConfig({ ...REQUIRED, DISCORD_PUBLIC_KEY: 'ab'.repeat(31) })).toThrow(
       /DISCORD_PUBLIC_KEY/,
     );
+  });
+});
+
+describe('LLM tagging settings', () => {
+  const KEY = 'placeholder-gemini-key';
+
+  it('WHEN LLM_ENABLED is unset or false THE SYSTEM SHALL start without any Gemini key', () => {
+    expect(loadServerConfig(REQUIRED).LLM_ENABLED).toBe(false);
+    expect(loadServerConfig({ ...REQUIRED, LLM_ENABLED: 'false' }).GEMINI_API_KEY).toBeUndefined();
+    expect(loadWorkerConfig({ ...WORKER_REQUIRED, LLM_ENABLED: '' }).LLM_ENABLED).toBe(false);
+  });
+
+  it('WHEN LLM_ENABLED is true without a key THE SYSTEM SHALL refuse to start and name the variable only', () => {
+    expect(() => loadServerConfig({ ...REQUIRED, LLM_ENABLED: 'true' })).toThrow(/GEMINI_API_KEY/);
+    expect(() =>
+      loadWorkerConfig({ ...WORKER_REQUIRED, LLM_ENABLED: 'true', GEMINI_API_KEY: '' }),
+    ).toThrow(/GEMINI_API_KEY/);
+  });
+
+  it('WHEN LLM_ENABLED is true with a key THE SYSTEM SHALL accept it', () => {
+    const config = loadServerConfig({ ...REQUIRED, LLM_ENABLED: 'true', GEMINI_API_KEY: KEY });
+    expect(config).toMatchObject({ LLM_ENABLED: true, GEMINI_API_KEY: KEY });
+  });
+
+  it.each([['yes'], ['1'], ['TRUE']])('rejects LLM_ENABLED=%s instead of guessing', (value) => {
+    expect(() => loadServerConfig({ ...REQUIRED, LLM_ENABLED: value })).toThrow(/LLM_ENABLED/);
+  });
+
+  it.each([['models/evil'], ['a?key=1'], ['../x'], ['a b']])(
+    'rejects GEMINI_MODEL %j, which would change the request path',
+    (model) => {
+      expect(() => loadServerConfig({ ...REQUIRED, GEMINI_MODEL: model })).toThrow(/GEMINI_MODEL/);
+    },
+  );
+
+  it('WHEN the LLM is on THE SYSTEM SHALL require the lease to outlast four Gemini-length calls', () => {
+    const slow = {
+      ...REQUIRED,
+      LLM_ENABLED: 'true',
+      GEMINI_API_KEY: KEY,
+      GEMINI_TIMEOUT_MS: '30000',
+    };
+    expect(() => loadServerConfig(slow)).toThrow(/LEASE_MS/);
+    expect(() => loadServerConfig({ ...slow, LLM_ENABLED: 'false' })).not.toThrow();
   });
 });
 

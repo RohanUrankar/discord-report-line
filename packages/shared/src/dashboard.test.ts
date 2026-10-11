@@ -18,7 +18,7 @@ const item = {
   command: 'report',
   userId: '900000000000000003',
   interactionStatus: 'followed_up',
-  action: { type: 'report', mirrorStatus: 'failed', llmTag: null },
+  action: { type: 'report', mirrorStatus: 'failed', llmTag: null, tagState: 'off' },
   job: { status: 'dead', attempts: 1, lastError: 'Slack says the webhook no longer exists.' },
 };
 

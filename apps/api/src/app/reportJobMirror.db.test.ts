@@ -267,9 +267,8 @@ describe('report job: the Slack mirror', () => {
 
   it('WHEN Slack answers 429 with Retry-After THE SYSTEM SHALL schedule the next attempt no earlier than that, even past the backoff cap', async () => {
     const h = pipeline();
-    h.slack.behave(
-      (_request, call) =>
-        call === 0 ? { status: 429, headers: { 'retry-after': '120' } } : { status: 200 },
+    h.slack.behave((_request, call) =>
+      call === 0 ? { status: 429, headers: { 'retry-after': '120' } } : { status: 200 },
     );
     await seedReport(db(), h);
     const startedAt = h.clock.nowMs();

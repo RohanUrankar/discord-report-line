@@ -8,7 +8,9 @@ export {
   JobKind,
   JobStatus,
   MirrorStatus,
+  ReportTag,
   TagFallback,
+  TagState,
   type CommandName,
 } from '@report-line/shared';
 

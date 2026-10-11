@@ -287,3 +287,19 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** `loggableFields` (known rule field names only; anything else reported as `(root)`) in the runtime path; `validateRule` is unchanged.
 - **Cost:** none shipped; caught by the test written for exactly this.
 - **Lesson → guardrail:** "paths, not values" is not enough when the path itself is data; log tests need a sentinel in key position as well as value position.
+
+### 2026-10-12 — step 6: remembered Gemini REST shape did not match the current docs page
+- **Believed / generated:** the structured-output page documents `generateContent` with `generationConfig.responseSchema`, and the key can go in `?key=` (the old quickstart style).
+- **Noticed by:** the docs fetch of the structured-output page described only a new Interactions API (`/v1beta/interactions`, `response_format`); the generateContent reference still showed `?key=` examples. Context7 returned the current `generateContent` curl with an `x-goog-api-key` header and `responseSchema`, and the migration guide, so the old call is still valid but no longer the headline API.
+- **Root cause:** memory of an older docs layout; two official pages disagree about the key placement (query parameter vs header) and about which API is current.
+- **Fix:** adapter uses `generateContent` with the key in the header only (CLAUDE.md forbids a key in a URL anyway) and an enum schema, behind the `Tagger` port; DESIGN rev 8 records the URLs, the model, and that the live call was not exercised.
+- **Cost:** none shipped; a `?key=` call would have put the secret in URLs and any proxy log.
+- **Lesson → guardrail:** a test asserts the key is in the `x-goog-api-key` header and in no URL, log line, response or attempt row.
+
+### 2026-10-12 — step 6: bulk `sed` on test fixtures changed port-level shapes as well as API shapes
+- **Believed / generated:** every `llmTag: null }` fixture in the repo is an API response shape that now needs `tagState`.
+- **Noticed by:** `tsc` in apps/api: two fixtures were `LogRecord` (the reader port, which has no `tagState`), and one web fixture widened `'off'` to `string`.
+- **Root cause:** a repo-wide textual replace instead of looking at which type each literal is checked against.
+- **Fix:** reverted the port-level fixtures, kept `tagState` only where the fixture is the response type, and used `as const` in the web spec.
+- **Cost:** minutes; the compiler caught it before a test ran.
+- **Lesson → guardrail:** none needed beyond running typecheck for every workspace after a shared-schema change (api, shared and web).

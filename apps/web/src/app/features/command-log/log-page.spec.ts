@@ -126,7 +126,7 @@ describe('LogPage', () => {
         logItem(3, {
           interactionStatus: 'followed_up',
           job: job('dead', 8),
-          action: { type: 'report', mirrorStatus: 'failed', llmTag: null },
+          action: { type: 'report', mirrorStatus: 'failed', llmTag: null, tagState: 'off' },
         }),
         logItem(2, { interactionStatus: 'failed', job: null, action: null }),
         logItem(1),

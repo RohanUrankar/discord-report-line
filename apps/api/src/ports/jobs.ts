@@ -20,6 +20,8 @@ export interface ClaimedJob {
   /** The raw JSON column; the runner validates it (backend-guidelines: validate data read from JSON). */
   payload: unknown;
   mirrorStatus: MirrorStatus;
+  /** `ACTION.llm_tag`: NULL until the tagging step has run (or when it never will), then a tag or `untagged`. */
+  llmTag: string | null;
   /** AES-GCM ciphertext of the server's Slack webhook URL, if one is set. */
   mirrorWebhookEnc: Buffer | null;
   /** The server's notification channel, if an admin picked one. */
@@ -54,6 +56,8 @@ export type StepNext =
 /** Everything one step changes, applied together with its attempt row (DESIGN §11.3: markers commit at once). */
 export interface StepEffect {
   mirrorStatus?: Extract<MirrorStatus, 'sent' | 'failed' | 'skipped'>;
+  /** The tagging step's result: a `ReportTag`, or `untagged`. Written once, together with its attempt row. */
+  llmTag?: string;
   /** Clear the interaction token now (a fatal follow-up). `finish` always clears it. */
   clearToken?: boolean;
   /** Replaces `last_error`. A `done` finish clears it instead. */

@@ -2,6 +2,7 @@ import type pg from 'pg';
 
 import { Argon2PasswordHasher } from './adapters/argon2PasswordHasher.js';
 import { AesGcmWebhookCipher } from './adapters/aesGcmWebhookCipher.js';
+import { GeminiHttpTagger } from './adapters/geminiHttp.js';
 import { DiscordHttpClient } from './adapters/discordHttp.js';
 import { NodeSessionCrypto } from './adapters/nodeSessionCrypto.js';
 import { PgGuildConfigStore } from './adapters/pg/pgGuildConfigStore.js';
@@ -22,6 +23,23 @@ import type { ServerConfig, WorkerConfig } from './config.js';
 import type { SessionCookieSettings } from './http/sessionCookie.js';
 import type { Clock } from './ports/clock.js';
 import type { Logger } from './ports/logger.js';
+import type { Tagger } from './ports/tagger.js';
+
+/**
+ * The Gemini client, or nothing. With LLM_ENABLED=false no adapter exists, so nothing can call Gemini and no key
+ * is read; config already guarantees a key when it is on.
+ */
+export function composeTagger(config: WorkerConfig): Tagger | undefined {
+  if (!config.LLM_ENABLED || config.GEMINI_API_KEY === undefined) {
+    return undefined;
+  }
+  return new GeminiHttpTagger({
+    apiBaseUrl: config.GEMINI_API_BASE_URL,
+    apiKey: config.GEMINI_API_KEY,
+    model: config.GEMINI_MODEL,
+    timeoutMs: config.GEMINI_TIMEOUT_MS,
+  });
+}
 
 export interface ComposedWorker {
   worker: Worker;
@@ -59,6 +77,7 @@ export function composeWorker(config: WorkerConfig, logger: Logger): ComposedWor
         timeoutMs: config.SLACK_TIMEOUT_MS,
         allowedUrlPrefix: config.SLACK_WEBHOOK_URL_PREFIX,
       }),
+      tagger: composeTagger(config),
       cipher: new AesGcmWebhookCipher(config.WEBHOOK_ENC_KEY),
       clock,
       random: Math.random, // jitter only; nothing an attacker must not guess (security-secrets)

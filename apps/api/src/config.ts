@@ -18,6 +18,13 @@ export const DEFAULT_WEB_DIST_DIR = fileURLToPath(
 );
 const DEFAULT_DISCORD_API_BASE_URL = 'https://discord.com/api/v10';
 
+// LLM tagging (DESIGN §11.3 step 1, rev 8). Off by default; the key is required only when it is on.
+const DEFAULT_GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+// Stable, cheapest current model on ai.google.dev/gemini-api/docs/models when this was chosen. Operators may override.
+const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
+const DEFAULT_GEMINI_TIMEOUT_MS = 8000; // four calls per pass must still fit inside LEASE_MS
+const GEMINI_MODEL_ID = /^[A-Za-z0-9._-]{1,64}$/; // goes into a URL path: no slashes, no query
+
 /** An empty value (`FOO=` in a .env file) counts as unset, so defaults and "required" behave. */
 const unlessEmpty = (value: unknown): unknown => (value === '' ? undefined : value);
 
@@ -50,8 +57,8 @@ const DEFAULT_WORKER_DB_POOL_MAX = 3;
 const DEFAULT_WORKER_DB_CONNECTION_TIMEOUT_MS = 5000;
 const DEFAULT_WORKER_DB_STATEMENT_TIMEOUT_MS = 10_000;
 const DEFAULT_WORKER_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS = 15_000;
-/** One job pass can make three calls in a row (mirror, edit, fallback), so a lease must outlast all of them. */
-const CALLS_PER_PASS = 3;
+/** One job pass can make four calls in a row (tag, mirror, edit, fallback), so a lease must outlast all of them. */
+const CALLS_PER_PASS = 4;
 const WEBHOOK_KEY_BYTES = 32;
 
 // Dashboard sessions (ADR-0003). The cookie is Secure unless an operator opts out explicitly.
@@ -65,6 +72,14 @@ const cookieSecure = z.preprocess(
   z
     .enum(['true', 'false'])
     .default('true')
+    .transform((value) => value === 'true'),
+);
+/** An opt-in switch: unset or empty is off, so a missing variable never turns a paid or external call on. */
+const boolFlag = z.preprocess(
+  unlessEmpty,
+  z
+    .enum(['true', 'false'])
+    .default('false')
     .transform((value) => value === 'true'),
 );
 
@@ -84,6 +99,14 @@ const workerShape = {
   DISCORD_API_BASE_URL: z.preprocess(unlessEmpty, z.url().default(DEFAULT_DISCORD_API_BASE_URL)),
   DISCORD_TIMEOUT_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_DISCORD_TIMEOUT_MS)),
   SLACK_TIMEOUT_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_SLACK_TIMEOUT_MS)),
+  LLM_ENABLED: boolFlag,
+  GEMINI_API_KEY: z.preprocess(unlessEmpty, z.string().min(1).optional()),
+  GEMINI_MODEL: z.preprocess(
+    unlessEmpty,
+    z.string().regex(GEMINI_MODEL_ID).default(DEFAULT_GEMINI_MODEL),
+  ),
+  GEMINI_API_BASE_URL: z.preprocess(unlessEmpty, z.url().default(DEFAULT_GEMINI_API_BASE_URL)),
+  GEMINI_TIMEOUT_MS: z.preprocess(unlessEmpty, positiveInt.default(DEFAULT_GEMINI_TIMEOUT_MS)),
   SLACK_WEBHOOK_URL_PREFIX: z.preprocess(
     unlessEmpty,
     z.url().default(DEFAULT_SLACK_WEBHOOK_URL_PREFIX),
@@ -117,11 +140,29 @@ interface WorkerTimings {
   LEASE_MS: number;
   DISCORD_TIMEOUT_MS: number;
   SLACK_TIMEOUT_MS: number;
+  LLM_ENABLED: boolean;
+  GEMINI_TIMEOUT_MS: number;
 }
 
 /** A lease shorter than one pass hands a slow-but-alive job to a second worker (DESIGN §7.1). */
 const leaseOutlastsAPass = (env: WorkerTimings): boolean =>
-  env.LEASE_MS > CALLS_PER_PASS * Math.max(env.DISCORD_TIMEOUT_MS, env.SLACK_TIMEOUT_MS);
+  env.LEASE_MS >
+  CALLS_PER_PASS *
+    Math.max(
+      env.DISCORD_TIMEOUT_MS,
+      env.SLACK_TIMEOUT_MS,
+      env.LLM_ENABLED ? env.GEMINI_TIMEOUT_MS : 0,
+    );
+
+/** With LLM_ENABLED=false nothing here is required: the key is read only when the switch is on. */
+const keyPresentWhenEnabled = (env: {
+  LLM_ENABLED: boolean;
+  GEMINI_API_KEY?: string | undefined;
+}): boolean => !env.LLM_ENABLED || env.GEMINI_API_KEY !== undefined;
+const GEMINI_KEY_ISSUE = {
+  path: ['GEMINI_API_KEY'],
+  error: 'GEMINI_API_KEY is required when LLM_ENABLED=true',
+};
 const LEASE_ISSUE = {
   path: ['LEASE_MS'],
   error: 'LEASE_MS must be longer than three outbound call timeouts',
@@ -170,7 +211,8 @@ const ServerEnv = z
         'RULE_TIMEOUT_MS + RECORD_TIMEOUT_MS + STATUS_TIMEOUT_MS must fit inside the 3 s Discord window',
     },
   )
-  .refine(leaseOutlastsAPass, LEASE_ISSUE);
+  .refine(leaseOutlastsAPass, LEASE_ISSUE)
+  .refine(keyPresentWhenEnabled, GEMINI_KEY_ISSUE);
 
 /** The standalone worker (WORKER_MODE=standalone) has no HTTP server, so it needs no public key. */
 const WorkerEnv = z
@@ -179,7 +221,8 @@ const WorkerEnv = z
     DATABASE_URL: z.preprocess(unlessEmpty, databaseUrl),
     ...workerShape,
   })
-  .refine(leaseOutlastsAPass, LEASE_ISSUE);
+  .refine(leaseOutlastsAPass, LEASE_ISSUE)
+  .refine(keyPresentWhenEnabled, GEMINI_KEY_ISSUE);
 
 /** For `scripts/set-mirror-webhook.ts`: the database, the key, and which URL prefix is acceptable. */
 const WebhookScriptEnv = z.object({

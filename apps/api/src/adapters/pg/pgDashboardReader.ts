@@ -37,7 +37,8 @@ const LOG_COLUMNS = `
   to_char(i.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_exact,
   i.command_name, i.user_id, i.status AS interaction_status,
   a.type AS action_type, a.mirror_status, a.llm_tag,
-  j.status AS job_status, j.attempts AS job_attempts, j.last_error AS job_last_error`;
+  j.status AS job_status, j.attempts AS job_attempts, j.last_error AS job_last_error,
+  COALESCE(j.payload ->> 'tag' = 'true', false) AS job_tag_requested`;
 
 const LOG_FROM = `
   FROM interaction i
@@ -87,6 +88,7 @@ const LogRow = z.object({
   job_status: z.enum(JobStatus).nullable(),
   job_attempts: z.number().int().nullable(),
   job_last_error: z.string().nullable(),
+  job_tag_requested: z.boolean(),
 });
 type LogRow = z.infer<typeof LogRow>;
 
@@ -122,6 +124,7 @@ function toLogRecord(raw: unknown): LogRecord {
             status: row.job_status,
             attempts: row.job_attempts ?? 0,
             lastError: row.job_last_error,
+            tagRequested: row.job_tag_requested,
           },
   };
 }

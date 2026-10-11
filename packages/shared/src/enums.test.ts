@@ -8,7 +8,9 @@ import {
   JobKind,
   JobStatus,
   MirrorStatus,
+  ReportTag,
   TagFallback,
+  TagState,
 } from './index.js';
 
 // These lists become migration CHECK constraints (DESIGN §9). A silent edit here would let the code write
@@ -32,6 +34,15 @@ describe('shared enums match DESIGN §8.3', () => {
     ['MirrorStatus', MirrorStatus, ['pending', 'sent', 'failed', 'skipped']],
   ])('%s', (_name, actual, expected) => {
     expect([...actual]).toEqual(expected);
+  });
+
+  it('ReportTag is a small fixed set that does not contain the fallback', () => {
+    expect([...ReportTag]).toEqual(['outage', 'bug', 'security', 'abuse', 'question', 'feedback', 'other']);
+    expect(ReportTag).not.toContain(TagFallback);
+  });
+
+  it('TagState lists the four dashboard cases', () => {
+    expect([...TagState]).toEqual(['tagged', 'untagged', 'pending', 'off']);
   });
 
   it('TagFallback is "untagged"', () => {

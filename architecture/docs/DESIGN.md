@@ -12,7 +12,7 @@
 
 **Changes 2026-10-12 (rev 7):** Step 5 decisions (§5.5): verified component numbers, the modal path, runtime rule reads, report buttons. Rule reads at runtime were missing after Step 4 (the controller used defaults only) and are now wired through one `resolveAction`.
 
-**Changes 2026-10-12 (rev 8):** Step 6 decisions. A: replay check keeps the 5-minute past window and adds a separate 60 s future-skew bound (§13 T-03). B: `/healthz` probes the database and the worker heartbeat (§14 Observability); deploy scripts (§16 Step 6, Appendix A).
+**Changes 2026-10-12 (rev 8):** Step 6 decisions. A: replay check keeps the 5-minute past window and adds a separate 60 s future-skew bound (§13 T-03). B: `/healthz` probes the database and the worker heartbeat (§14 Observability); deploy scripts (§16 Step 6, Appendix A). C: LLM tagging (§11.3 "Rev 8 tagging decisions"): fixed tag set, Gemini `generateContent` adapter, where the tag is shown, `tagState` in the dashboard API.
 
 ---
 
@@ -532,7 +532,7 @@ classDiagram
     }
     class Tagger {
         <<interface>>
-        +tag(text) Promise~Tag~
+        +tag(text) Promise~TagResult~
     }
     class Clock {
         <<interface>>
@@ -992,7 +992,15 @@ Stored `INTERACTION.status` maps from this: `AnsweredInline` → `answered`, `De
 
 The fallback message is public, so it **never contains the report text** when the rule had `ephemeral: true`: it says "<@user>, your report was logged." plus the reference. Leaking a privately submitted report into a public channel would be worse than a missing reply.
 
-Every pass that makes an outbound call writes one `job_attempt` row with its `target`. `MAX_ATTEMPTS` counts passes, not rows.
+Every pass that makes an outbound call writes one `job_attempt` row with its `target`. `MAX_ATTEMPTS` counts passes, not rows.**Rev 8 tagging decisions (step 1 in code).**
+
+- **Tag set (the spec named only the fallback).** `ReportTag` in `packages/shared`: `outage, bug, security, abuse, question, feedback, other`. `other` means the model looked and nothing fits; `untagged` (`TagFallback`) means no tag was obtained. The two are different facts and stay different values. The set is the single list behind the Gemini response schema, the output validation, the Slack line and the dashboard.
+- **Provider call.** `POST {GEMINI_API_BASE_URL}/models/{GEMINI_MODEL}:generateContent` ([API reference](https://ai.google.dev/api/generate-content), [structured output](https://ai.google.dev/gemini-api/docs/structured-output), [API key header](https://ai.google.dev/gemini-api/docs/api-overview), checked 2026-10-12). Key in the `x-goog-api-key` header, never the URL. `generationConfig.responseMimeType = application/json` with a `responseSchema` of `{tag: STRING enum ReportTag}`, required. The answer is validated against `ReportTag` again in our code (a schema is a request, not a guarantee): exactly `{"tag": <listed word>}`, else `invalid_output`. The request carries the instruction plus the report text between `<report>` tags and nothing else (no user, server, channel or token). Redirects are not followed, the response body read is capped at 16 KiB, and every call has an `AbortSignal` (`GEMINI_TIMEOUT_MS`, default 8 s, so four calls still fit inside `LEASE_MS`).
+- **Model.** Default `gemini-3.5-flash-lite`: listed as stable and the cheapest 3.5 model on [the models page](https://ai.google.dev/gemini-api/docs/models) when chosen; overridable with `GEMINI_MODEL` (letters, digits, `.`, `_`, `-` only, since it becomes a URL path segment). Google's current guides steer new work to the Interactions API (`/v1beta/interactions`, beta); `generateContent` is still documented, not marked deprecated, and the adapter sits behind `Tagger`, so moving later is one file. No `temperature` or token limit is sent: the enum-constrained answer is a few tokens, and a small output cap could truncate a thinking model into `untagged` forever. **Not yet exercised against the live API (no key was used in development): run one tagged report with a real key before the demo.**
+- **Failure = `untagged`, once.** Timeout, network error, any non-2xx (5xx, 429, 4xx, redirect), a body that is not the expected envelope, JSON that is not the expected object, or a tag outside `ReportTag` all end the same way: `llm_tag = 'untagged'` and a `job_attempt` row with `target = 'tag'`, `outcome = 'fatal'` (it is never retried, so `retryable` would mislead) and a fixed readable reason. The marker commits with its attempt row before the mirror runs, so a Slack retry pass finds it set and never calls Gemini again. If that commit itself fails (database error), the lease recovers the job and the tag step runs once more: the one case where Gemini can be asked twice.
+- **Off means off.** `LLM_ENABLED=false` (default) builds no Gemini client and requires no key; a rule with `tag: false` skips the step. Either way `llm_tag` stays NULL and no `tag` attempt is written.
+- **Where the tag appears.** Dashboard: yes. Slack mirror: yes, a trailing ` · tag: bug` when (and only when) a listed tag was obtained; the mirror goes to the team channel the admin configured and already contains the report. Discord: never, neither the edited reply nor the channel fallback. The fallback is public, and a tag is derived from the report, so for an ephemeral report it would leak what the text is about.
+- **Dashboard API shape.** `action.llmTag` is now `ReportTag | 'untagged' | null` (a stored value outside the set is reported as `untagged`, never passed through). New field `action.tagState`: `tagged` (a real tag), `untagged` (tried and failed), `pending` (the job wanted a tag and has not run yet), `off` (LLM disabled, rule tag off, or not a report). `tagState` is derived, not stored, from `llm_tag` and the job (its status and the rule snapshot's `tag` flag in `job.payload`; the report text is never read). Attempt history rows with `target: 'tag'` already existed in the enum and the sort order.
 
 ### 11.4 Why the follow-up 401/404 is fatal (proposal 0001, accepted)
 
@@ -1059,7 +1067,7 @@ Trust boundaries and numbered flows are in the DFD (section 2.4).
 | Slack mirror | 400 (bad payload/URL) | fatal, mark job dead, surface on dashboard |
 | Slack mirror | 2xx but response lost → retry doubles the post | Slack has no idempotency key; bound attempts, `ACTION.mirror_status = 'sent'` is the "mirrored" marker, accept rare double as a documented limitation (honest: this is the one at-most-once gap) |
 | Slack mirror | 408 / 425 | fatal like any other non-429 4xx (one classifier; neither Slack nor Discord documents returning them) |
-| Gemini (optional) | timeout / 5xx / 429 / invalid output | one try per pass, not retried: write `llm_tag = 'untagged'` and continue; the mirror proceeds. (A retry would block the mirror in a one-job design) |
+| Gemini (optional) | timeout / 5xx / 429 / invalid output | (rev 8: any 4xx, a redirect and an over-long body are handled the same way; the attempt row says which) one try per pass, not retried: write `llm_tag = 'untagged'` and continue; the mirror proceeds. (A retry would block the mirror in a one-job design) |
 | Gemini | invalid/unparseable JSON | validate, use fallback tag, do not fail the job; never let output trigger an action |
 | Postgres | transient | short retry; connection pool bounded |
 | Worker | process crash mid-job | claim lease expires, another worker (or the restarted one) repicks; outbox is durable |

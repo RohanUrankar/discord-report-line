@@ -23,7 +23,7 @@ function record(n: number): LogRecord {
     userId: '900000000000000003',
     interactionStatus: 'followed_up',
     action: { type: 'report', mirrorStatus: 'sent', llmTag: null },
-    job: { status: 'done', attempts: 1, lastError: null },
+    job: { status: 'done', attempts: 1, lastError: null, tagRequested: false },
   };
 }
 

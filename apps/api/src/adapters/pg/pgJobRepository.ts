@@ -37,7 +37,7 @@ const CLAIM = `
               job.interaction_token, job.token_expires_at, job.payload, job.next_run_at
   )
   SELECT c.id, c.interaction_id, c.guild_id, c.attempts, c.claimed_at, c.interaction_token,
-         c.token_expires_at, c.payload, a.mirror_status, g.mirror_webhook_enc, g.post_channel_id,
+         c.token_expires_at, c.payload, a.mirror_status, a.llm_tag, g.mirror_webhook_enc, g.post_channel_id,
          i.channel_id
     FROM claimed c
     JOIN interaction i ON i.id = c.interaction_id
@@ -54,6 +54,9 @@ const LOCK_OWN_LEASE = `
 const INSERT_ATTEMPT = `
   INSERT INTO job_attempt (job_id, attempt_no, target, outcome, http_status, error, started_at, finished_at)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
+
+/** Once only: a tag already set (or the fallback) is never overwritten. */
+const SET_LLM_TAG = 'UPDATE action SET llm_tag = $2 WHERE interaction_id = $1 AND llm_tag IS NULL';
 
 const SET_MIRROR_STATUS = 'UPDATE action SET mirror_status = $2 WHERE interaction_id = $1';
 
@@ -89,6 +92,7 @@ interface ClaimRow {
   token_expires_at: Date | null;
   payload: unknown;
   mirror_status: MirrorStatus;
+  llm_tag: string | null;
   mirror_webhook_enc: Buffer | null;
   post_channel_id: string | null;
   channel_id: string;
@@ -149,6 +153,9 @@ export class PgJobRepository implements JobRepository {
         attempt.finishedAt,
       ]);
     }
+    if (effect.llmTag !== undefined) {
+      await client.query(SET_LLM_TAG, [job.interactionId, effect.llmTag]);
+    }
     if (effect.mirrorStatus !== undefined) {
       await client.query(SET_MIRROR_STATUS, [job.interactionId, effect.mirrorStatus]);
     }
@@ -192,6 +199,7 @@ function toClaimedJob(row: ClaimRow): ClaimedJob {
     tokenExpiresAt: row.token_expires_at,
     payload: row.payload,
     mirrorStatus: row.mirror_status,
+    llmTag: row.llm_tag,
     mirrorWebhookEnc: row.mirror_webhook_enc,
     postChannelId: row.post_channel_id,
     channelId: row.channel_id,

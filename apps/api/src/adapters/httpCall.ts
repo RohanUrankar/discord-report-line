@@ -52,7 +52,7 @@ export async function performCall(request: HttpRequest): Promise<CallResult> {
   return { ok: false, failure };
 }
 
-function isTimeout(error: unknown): boolean {
+export function isTimeout(error: unknown): boolean {
   return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
 }
 
@@ -97,16 +97,30 @@ async function readRetryAfterSeconds(response: Response): Promise<number | undef
 }
 
 async function readBounded(response: Response): Promise<string> {
+  return (await readBoundedBody(response, MAX_ERROR_BODY_BYTES)).text;
+}
+
+/**
+ * Reads at most `maxBytes` of a body, then drops the connection. `truncated` says the body was longer, so a
+ * caller that needs the whole thing (a JSON answer) can refuse a partial one. A read that fails (timeout)
+ * throws, as `fetch` does.
+ */
+export async function readBoundedBody(
+  response: Response,
+  maxBytes: number,
+): Promise<{ text: string; truncated: boolean }> {
   const reader = response.body?.getReader();
   if (reader === undefined) {
-    return '';
+    return { text: '', truncated: false };
   }
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let finished = false;
   try {
-    while (total < MAX_ERROR_BODY_BYTES) {
+    while (total <= maxBytes) {
       const result: ReadableStreamReadResult<unknown> = await reader.read();
       if (result.done) {
+        finished = true;
         break;
       }
       if (result.value instanceof Uint8Array) {
@@ -117,5 +131,8 @@ async function readBounded(response: Response): Promise<string> {
   } finally {
     await reader.cancel().catch(() => undefined);
   }
-  return Buffer.concat(chunks).subarray(0, MAX_ERROR_BODY_BYTES).toString('utf8');
+  return {
+    text: Buffer.concat(chunks).subarray(0, maxBytes).toString('utf8'),
+    truncated: !finished || total > maxBytes,
+  };
 }

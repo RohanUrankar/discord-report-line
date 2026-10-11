@@ -6,6 +6,7 @@ import type {
 } from '@report-line/shared';
 
 import { readableLogText } from '../domain/logText.js';
+import { tagViewOf } from '../domain/tagging.js';
 import type { AttemptRecord, GuildRecord, LogRecord } from '../ports/dashboard.js';
 
 // The ONE place a stored row becomes an API response. Every field is named here; nothing is spread or passed
@@ -28,7 +29,7 @@ export function toLogItem(row: LogRecord): InteractionLogItem {
         : {
             type: row.action.type,
             mirrorStatus: row.action.mirrorStatus,
-            llmTag: row.action.llmTag,
+            ...tagViewOf(row.action.llmTag, row.job),
           },
     job:
       row.job === null

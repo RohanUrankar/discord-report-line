@@ -24,7 +24,13 @@ export interface LogRecord {
   userId: string;
   interactionStatus: InteractionStatus;
   action: { type: ActionType; mirrorStatus: MirrorStatus; llmTag: string | null } | null;
-  job: { status: JobStatus; attempts: number; lastError: string | null } | null;
+  job: {
+    status: JobStatus;
+    attempts: number;
+    lastError: string | null;
+    /** The rule snapshot's tag flag (one boolean, read from the payload; never the report text). */
+    tagRequested: boolean;
+  } | null;
 }
 
 export interface AttemptRecord {

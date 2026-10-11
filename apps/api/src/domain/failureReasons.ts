@@ -2,6 +2,7 @@
 // skill). They end up in job_attempt.error and job.last_error, so they never contain a URL, a token or any part
 // of a response body: only the target, the HTTP status and what to do about it.
 import type { CallFailure } from './retry.js';
+import type { TagFailure } from './tagging.js';
 
 export type FailureTarget = 'mirror' | 'followup' | 'fallback';
 
@@ -82,4 +83,34 @@ function fatalStatus(target: FailureTarget, name: string, status: number, code: 
           ? `Discord could not find that channel ${code}.`
           : `${name} rejected the channel post ${code}.`;
   }
+}
+
+/**
+ * Why a report went out without an AI tag, for the attempt history. Tagging is best-effort and never retried, so
+ * every reason ends the same way. Only the kind and the HTTP status appear: no response text, no key.
+ */
+export function describeTagFailure(failure: TagFailure): string {
+  const outcome = 'The report was sent without a tag.';
+  switch (failure.kind) {
+    case 'timeout':
+      return `Gemini did not answer in time. ${outcome}`;
+    case 'network':
+      return `Could not reach Gemini. ${outcome}`;
+    case 'invalid_output':
+      return `Gemini's answer was not one of the allowed tags. ${outcome}`;
+    case 'http':
+      return `Gemini ${describeTagStatus(failure.status)} (HTTP ${String(failure.status)}). ${outcome}`;
+  }
+}
+
+function describeTagStatus(status: number): string {
+  if (status === HTTP.TOO_MANY_REQUESTS) {
+    return 'is rate limiting us';
+  }
+  if (status >= HTTP.SERVER_ERROR_MIN) {
+    return 'had a problem on its side';
+  }
+  return status === HTTP.UNAUTHORIZED || status === HTTP.FORBIDDEN
+    ? 'refused the request, so check the API key setting'
+    : 'rejected the request';
 }

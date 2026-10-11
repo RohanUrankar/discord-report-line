@@ -74,7 +74,7 @@ describe('InteractionDetailPage', () => {
     const item = logItem(7, {
       interactionStatus: 'followed_up',
       job: job('dead', 8, 'Slack answered 404'),
-      action: { type: 'report', mirrorStatus: 'failed', llmTag: null },
+      action: { type: 'report', mirrorStatus: 'failed', llmTag: null, tagState: 'off' },
     });
     getInteraction.mockResolvedValue(
       detail(item, [
@@ -149,7 +149,7 @@ describe('InteractionDetailPage', () => {
         logItem(7, {
           command: 'status',
           job: null,
-          action: { type: 'status', mirrorStatus: 'skipped', llmTag: null },
+          action: { type: 'status', mirrorStatus: 'skipped', llmTag: null, tagState: 'off' },
           interactionStatus: 'answered',
         }),
       ),

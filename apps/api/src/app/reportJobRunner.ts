@@ -1,5 +1,6 @@
 import {
   describeFailure,
+  describeTagFailure,
   MIRROR_UNREADABLE,
   PAYLOAD_UNREADABLE,
   withAttemptLimit,
@@ -9,7 +10,13 @@ import { mirrorMessage } from '../domain/mirrorMessage.js';
 import { parseReportJobPayload, type ReportJobPayload } from '../domain/reportJob.js';
 import { reportFallbackBody, reportResultBody } from '../domain/reportReplies.js';
 import { classifyFailure, retryDelayMs, type CallFailure } from '../domain/retry.js';
-import type { AttemptOutcome, AttemptTarget, InteractionStatus } from '../domain/types.js';
+import { isReportTag } from '../domain/tagging.js';
+import {
+  TagFallback,
+  type AttemptOutcome,
+  type AttemptTarget,
+  type InteractionStatus,
+} from '../domain/types.js';
 import type { Clock } from '../ports/clock.js';
 import type { DiscordClient } from '../ports/discord.js';
 import type {
@@ -22,6 +29,7 @@ import type {
 import type { Logger } from '../ports/logger.js';
 import type { Random } from '../ports/random.js';
 import type { SlackMirror } from '../ports/slack.js';
+import type { Tagger } from '../ports/tagger.js';
 import { WebhookDecryptError, type WebhookCipher } from '../ports/webhookCipher.js';
 
 export interface ReportJobRunnerOptions {
@@ -35,6 +43,8 @@ export interface ReportJobRunnerDeps {
   jobs: JobRepository;
   discord: DiscordClient;
   slack: SlackMirror;
+  /** Present only when LLM_ENABLED: without it the tagging step does nothing and no key is needed. */
+  tagger?: Tagger | undefined;
   cipher: WebhookCipher;
   clock: Clock;
   random: Random;
@@ -51,12 +61,14 @@ interface Pass extends JobContext {
   payload: ReportJobPayload;
   /** True when the Slack mirror ended in 'failed' (this pass or an earlier one): the job will finish dead. */
   mirrorFailed: boolean;
+  /** `ACTION.llm_tag` as of this pass: what the mirror line may show once it is a real tag. */
+  llmTag: string | null;
 }
 
 /**
- * One pass over a report job (DESIGN §11.3): mirror, then edit the deferred reply, then, if the reply is
+ * One pass over a report job (DESIGN §11.3): tag, mirror, then edit the deferred reply, then, if the reply is
  * impossible, the channel fallback. Each step skips itself when its marker says it already happened, so a
- * retried job never repeats a Slack post or a successful edit. Tagging (step 1) arrives with the LLM work.
+ * retried job never repeats a Slack post, a successful edit or a Gemini call.
  *
  * Each step returns whether the pass goes on to the next one. The runner never throws for a failed call: the
  * outcome is written through `JobRepository.commitStep`. A throw means the database itself failed; the job
@@ -84,11 +96,42 @@ export class ReportJobRunner {
       log,
       payload: parsed.payload,
       mirrorFailed: job.mirrorStatus === 'failed',
+      llmTag: job.llmTag,
     };
+    await this.tagStep(pass);
     if (!(await this.mirrorStep(pass)) || !(await this.followUpStep(pass))) {
       return;
     }
     await this.fallbackStep(pass);
+  }
+
+  // Step 1: the LLM tag ---------------------------------------------------------------------------------
+
+  /**
+   * One try, never retried (DESIGN §11.3): any failure writes `untagged` and the pass goes on, so the tag can
+   * never delay or block the mirror, kill the job or be asked for twice. The marker is committed with its attempt
+   * row before the mirror runs, so a later pass (a Slack retry) finds it set and does not call Gemini again.
+   * Nothing the model says is logged, stored or sent unless it passed the enum check inside the adapter.
+   */
+  private async tagStep(pass: Pass): Promise<void> {
+    const { tagger } = this.deps;
+    if (tagger === undefined || !pass.payload.tag || pass.llmTag !== null) {
+      return;
+    }
+    const startedAt = this.now();
+    const result = await tagger.tag(pass.payload.text);
+    if (result.ok) {
+      const attempt = this.attempt(pass, 'tag', 'success', startedAt, result.status);
+      await this.commit(pass, attempt, { llmTag: result.tag });
+      pass.llmTag = result.tag;
+      return;
+    }
+    const reason = describeTagFailure(result.failure);
+    const status = result.failure.kind === 'http' ? result.failure.status : undefined;
+    await this.commit(pass, this.attempt(pass, 'tag', 'fatal', startedAt, status, reason), {
+      llmTag: TagFallback,
+    });
+    pass.llmTag = TagFallback;
   }
 
   // Step 2: the Slack mirror ----------------------------------------------------------------------------
@@ -108,7 +151,13 @@ export class ReportJobRunner {
     if (url === undefined) {
       return this.failMirror(pass, startedAt, undefined, MIRROR_UNREADABLE);
     }
-    const result = await this.deps.slack.send(url, mirrorMessage(pass.payload));
+    const result = await this.deps.slack.send(
+      url,
+      mirrorMessage({
+        ...pass.payload,
+        reportTag: isReportTag(pass.llmTag) ? pass.llmTag : undefined,
+      }),
+    );
     if (result.ok) {
       await this.commit(pass, this.attempt(pass, 'mirror', 'success', startedAt, result.status), {
         mirrorStatus: 'sent',

@@ -48,7 +48,8 @@ describe('HealthService', () => {
 
   it('WHEN the database query fails THE SYSTEM SHALL report unhealthy and carry no error text', async () => {
     const { reader, service } = build();
-    reader.behaviour = () => Promise.reject(new Error('password authentication failed for user "x"'));
+    reader.behaviour = () =>
+      Promise.reject(new Error('password authentication failed for user "x"'));
 
     const report = await service.check();
 

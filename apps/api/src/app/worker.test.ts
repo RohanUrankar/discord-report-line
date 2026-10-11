@@ -26,6 +26,7 @@ function job(id: string): ClaimedJob {
     tokenExpiresAt: null,
     payload: {},
     mirrorStatus: 'pending',
+    llmTag: null,
     mirrorWebhookEnc: null,
     postChannelId: null,
     channelId: 'c',

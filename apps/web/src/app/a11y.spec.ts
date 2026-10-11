@@ -46,7 +46,7 @@ const api = {
 const dead = logItem(3, {
   interactionStatus: 'followed_up',
   job: { status: 'dead', attempts: 8, lastError: 'Slack answered 404' },
-  action: { type: 'report', mirrorStatus: 'failed', llmTag: null },
+  action: { type: 'report', mirrorStatus: 'failed', llmTag: null, tagState: 'off' },
 });
 
 async function audit(url: string): Promise<Result[]> {

@@ -26,7 +26,7 @@ describe('describeRow: refused commands', () => {
         logItem(1, {
           interactionStatus: 'answered',
           job: null,
-          action: { type, mirrorStatus: 'skipped', llmTag: null },
+          action: { type, mirrorStatus: 'skipped', llmTag: null, tagState: 'off' as const },
         }),
       );
       expect(row.label).toBe(label);
@@ -107,7 +107,7 @@ describe('describeNotification', () => {
     ['skipped', 'Not needed'],
   ] as const)('shows mirror status %s as "%s"', (mirrorStatus, label) => {
     expect(
-      describeNotification(logItem(1, { action: { type: 'report', mirrorStatus, llmTag: null } }))
+      describeNotification(logItem(1, { action: { type: 'report', mirrorStatus, llmTag: null, tagState: 'off' } }))
         ?.label,
     ).toBe(label);
   });
@@ -116,7 +116,7 @@ describe('describeNotification', () => {
     expect(
       describeNotification(
         logItem(1, {
-          action: { type: 'report', mirrorStatus: 'pending', llmTag: null },
+          action: { type: 'report', mirrorStatus: 'pending', llmTag: null, tagState: 'off' as const },
           job: job('dead', 8),
         }),
       )?.label,
@@ -134,7 +134,7 @@ describe('commandLabel', () => {
     expect(commandLabel({ command: null, action: null })).toBe('Button click');
     const click = (type: 'acknowledged' | 'escalated') => ({
       command: null,
-      action: { type, mirrorStatus: 'skipped' as const, llmTag: null },
+      action: { type, mirrorStatus: 'skipped' as const, llmTag: null, tagState: 'off' as const },
     });
     expect(commandLabel(click('acknowledged'))).toBe('Button: Acknowledge');
     expect(commandLabel(click('escalated'))).toBe('Button: Escalate');

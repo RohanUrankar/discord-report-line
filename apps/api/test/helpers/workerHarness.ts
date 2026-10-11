@@ -6,6 +6,7 @@ import { DiscordHttpClient } from '../../src/adapters/discordHttp.js';
 import { PgJobRepository } from '../../src/adapters/pg/pgJobRepository.js';
 import { PgLedger } from '../../src/adapters/pg/pgLedger.js';
 import { PgWorkerHeartbeat } from '../../src/adapters/pg/pgWorkerHeartbeat.js';
+import { GeminiHttpTagger } from '../../src/adapters/geminiHttp.js';
 import { SlackHttpClient } from '../../src/adapters/slackHttp.js';
 import { ReportJobRunner } from '../../src/app/reportJobRunner.js';
 import { Worker } from '../../src/app/worker.js';
@@ -14,6 +15,7 @@ import { createLogger } from '../../src/http/middleware.js';
 import type { Clock } from '../../src/ports/clock.js';
 import type { RecordInput } from '../../src/ports/ledger.js';
 import { truncateAll } from './db.js';
+import { GEMINI_TEST_KEY } from './gemini.js';
 import { LogSink } from './logging.js';
 import {
   CHANNEL_ID,
@@ -58,10 +60,14 @@ export interface HarnessOptions {
   random?: number;
   /** The pool the first worker uses, when a test wants to watch or isolate it. */
   pool?: pg.Pool;
+  /** Turns LLM tagging on, pointed at the `gemini` stub. Absent: no tagger exists, as with LLM_ENABLED=false. */
+  llm?: { timeoutMs?: number };
 }
 
 export interface Harness {
   slack: StubServer;
+  /** Stands in for Gemini. It sees no traffic unless the harness was started with `llm`. */
+  gemini: StubServer;
   discord: StubServer;
   clock: ManualClock;
   logs: LogSink;
@@ -81,6 +87,7 @@ const MAX_DRAIN_TICKS = 200;
 export async function startHarness(pool: pg.Pool, options: HarnessOptions = {}): Promise<Harness> {
   const slack = await StubServer.start();
   const discord = await StubServer.start();
+  const gemini = await StubServer.start();
   const clock = new ManualClock();
   const logs = new LogSink();
   const logger = createLogger('debug', logs);
@@ -100,6 +107,15 @@ export async function startHarness(pool: pg.Pool, options: HarnessOptions = {}):
           timeoutMs: options.slackTimeoutMs ?? 1000,
           allowedUrlPrefix: `${slack.baseUrl}/services/`,
         }),
+        tagger:
+          options.llm === undefined
+            ? undefined
+            : new GeminiHttpTagger({
+                apiBaseUrl: `${gemini.baseUrl}/v1beta`,
+                apiKey: GEMINI_TEST_KEY,
+                model: 'gemini-test-model',
+                timeoutMs: options.llm.timeoutMs ?? 1000,
+              }),
         cipher,
         clock,
         random: () => options.random ?? 1,
@@ -125,6 +141,7 @@ export async function startHarness(pool: pg.Pool, options: HarnessOptions = {}):
   return {
     slack,
     discord,
+    gemini,
     clock,
     logs,
     worker,
@@ -143,7 +160,7 @@ export async function startHarness(pool: pg.Pool, options: HarnessOptions = {}):
     addWorker: buildWorker,
     async stop() {
       await worker.stop();
-      await Promise.all([slack.close(), discord.close()]);
+      await Promise.all([slack.close(), discord.close(), gemini.close()]);
     },
   };
 }
@@ -154,6 +171,8 @@ export interface SeedOptions {
   text?: string;
   ephemeral?: boolean;
   mirror?: boolean;
+  /** The rule snapshot's tag flag. Default false, so existing tests never involve the tagger. */
+  tag?: boolean;
   /** 'valid' stores an encrypted webhook pointing at the Slack stub; 'none' leaves the guild without one. */
   webhook?: 'valid' | 'none' | Buffer;
   postChannelId?: string | null;
@@ -175,7 +194,7 @@ export async function seedReport(
     ephemeral: options.ephemeral ?? true,
     replyMessage: 'Report logged. The team has been notified.',
     mirror: options.mirror ?? true,
-    tag: false,
+    tag: options.tag ?? false,
   };
   const input: RecordInput = {
     interaction: {
