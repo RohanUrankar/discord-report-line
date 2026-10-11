@@ -7,7 +7,10 @@ import {
 } from '@report-line/shared';
 import type { z } from 'zod';
 
+import { fieldPaths, ROOT_FIELD } from './fieldPaths.js';
 import type { Action } from './types.js';
+
+export { ROOT_FIELD };
 
 export type RuleValidation<C> = { ok: true; rule: C } | { ok: false; fields: string[] };
 
@@ -17,8 +20,6 @@ export interface RuleContext {
   enabled: boolean;
 }
 
-/** Field path reported when the problem is the config as a whole (not an object, wrong shape). */
-export const ROOT_FIELD = '(root)';
 const UNKNOWN_COMMAND_FIELD = 'command';
 
 export function isCommandName(command: string): command is CommandName {
@@ -95,14 +96,4 @@ function safeValidate<S extends z.ZodType>(schema: S, json: unknown): RuleValida
     // safeParse only throws on hostile input (e.g. a Proxy or a throwing getter); treat it as invalid.
     return { ok: false, fields: [ROOT_FIELD] };
   }
-}
-
-function fieldPaths(issues: readonly z.core.$ZodIssue[]): string[] {
-  const paths = issues.flatMap((issue) => {
-    if (issue.code === 'unrecognized_keys') {
-      return issue.keys.map((key) => [...issue.path.map(String), key].join('.'));
-    }
-    return [issue.path.length === 0 ? ROOT_FIELD : issue.path.map(String).join('.')];
-  });
-  return [...new Set(paths)];
 }

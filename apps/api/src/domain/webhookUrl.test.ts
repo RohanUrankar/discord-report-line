@@ -20,6 +20,14 @@ describe('isAllowedWebhookUrl', () => {
     ['the prefix alone', PREFIX],
     ['empty text', ''],
     ['not a URL', 'not a url'],
+    ['a space inside', `${PREFIX}T000/B000/xx xx`],
+    [
+      'a line break inside',
+      `${PREFIX}T000/B000/xx
+xx`,
+    ],
+    ['a tab inside', `${PREFIX}T000/B000/xx	xx`],
+    ['non-ASCII letters', `${PREFIX}T000/B000/xxé`],
   ])('rejects %s', (_label, url) => {
     expect(isAllowedWebhookUrl(url, PREFIX)).toBe(false);
   });
