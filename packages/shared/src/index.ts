@@ -30,3 +30,12 @@ export {
   LOG_PAGE_SIZE_MAX,
   Snowflake,
 } from './dashboard.js';
+export {
+  ConnectGuildRequest,
+  GuildSettings,
+  RuleList,
+  RuleView,
+  UpdateGuildSettingsRequest,
+  UpdateRuleRequest,
+  WEBHOOK_URL_MAX_LENGTH,
+} from './guildConfig.js';

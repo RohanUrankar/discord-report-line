@@ -33,6 +33,11 @@ export const ApiErrorBody = z
         code: z.enum(ErrorCode),
         message: z.string().min(1),
         requestId: z.string().min(1),
+        /** On VALIDATION_FAILED: which fields need attention, by path, such as `mirrorWebhookUrl` or `config.replyMessage`. Never values. */
+        details: z
+          .object({ fields: z.array(z.string().min(1)).min(1) })
+          .strict()
+          .optional(),
       })
       .strict(),
   })
