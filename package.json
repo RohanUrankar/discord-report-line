@@ -10,6 +10,8 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "dev": "npm run dev -w @report-line/api",
+    "register-commands": "tsx --env-file=.env scripts/register-commands.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
