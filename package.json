@@ -17,7 +17,8 @@
     "test": "npm run test --workspaces --if-present",
     "format": "prettier --write .",
     "db:migrate": "tsx --env-file=.env scripts/migrate.ts",
-    "set-mirror-webhook": "tsx --env-file=.env scripts/set-mirror-webhook.ts"
+    "set-mirror-webhook": "tsx --env-file=.env scripts/set-mirror-webhook.ts",
+    "seed-admin": "tsx --env-file=.env scripts/seed-admin.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

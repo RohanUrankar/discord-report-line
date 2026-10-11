@@ -123,3 +123,19 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** use the Write and Edit tools for files, small node scripts for multi-point edits.
 - **Cost:** a few retries.
 - **Lesson → guardrail:** none beyond this note.
+
+### 2026-10-12 — step 4 item 1 (auth): two small wrong assumptions caught by my own tests
+- **Believed / generated:** (a) the login schema used `z.email()` while the service trimmed and lower-cased the email, so I assumed `"  ADMIN@Example.test "` would sign in; (b) the argon2 hash string would read `m=19456,t=2,p=1`.
+- **Noticed by:** `authRoutes.test.ts › email differs only in case or spaces` got 400 instead of 200 (zod rejected the leading space before the service ran); `argon2PasswordHasher.test.ts` received `m=19456,p=1,t=2`.
+- **Root cause:** (a) normalisation lived in one layer and validation in another, so they disagreed about what "the same email" means; (b) I wrote the PHC parameter order from memory instead of looking at the library output.
+- **Fix:** the shared `LoginRequest` now trims and lower-cases before validating (the service still normalises as defence in depth); the test pins the real order.
+- **Cost:** minutes. Without the test, an admin pasting their email with a trailing space would have seen "invalid".
+- **Lesson → guardrail:** the two tests above; normalise at the boundary schema.
+
+### 2026-10-12 — tooling: Postgres for the tests was down and the 5433 instance had to be found
+- **Believed / generated:** DB tests would just run, as in earlier steps.
+- **Noticed by:** `ECONNREFUSED 127.0.0.1:5433` from every `pg/*.test.ts`.
+- **Root cause:** the standalone instance from the README (Option A) is not a service; it was stopped, and its data directory is `E:\pgdata-reportline`, not the README's example path.
+- **Fix:** started it with `pg_ctl ... -p 5433` (the call blocks on the log handle in this tool, so the process was left running).
+- **Cost:** a few minutes. Not a code problem.
+- **Lesson → guardrail:** none; a "start the test database" npm script would help (follow-up).

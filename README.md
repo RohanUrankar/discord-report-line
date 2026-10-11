@@ -95,6 +95,11 @@ Every variable is validated at startup; a bad or missing one stops the process a
 | `WEBHOOK_ENC_KEY`                   | server, worker, set-mirror-webhook | yes |                  | 32 random bytes, base64. A real secret                                  |
 | `SLACK_WEBHOOK_URL_PREFIX`          | worker, set-mirror-webhook | no | `https://hooks.slack.com/services/` | Only URLs under this prefix are stored or called           |
 | `SLACK_TIMEOUT_MS`                  | worker          | no          | `5000`                        | Per Slack call                                                          |
+| `SESSION_SECRET`                    | server          | yes         |                               | 32+ random characters. A real secret: signs the per-session CSRF token |
+| `SESSION_TTL_MS`                    | server          | no          | `28800000` (8 h)              | Absolute session lifetime; no sliding renewal                           |
+| `SESSION_COOKIE_SECURE`             | server          | no          | `true`                        | Set to `false` ONLY for plain-http local development. Logged as a warning at startup |
+| `TRUST_PROXY_HOPS`                  | server          | no          | `0`                           | Reverse proxies in front (1 on Render), so login throttling sees real client IPs |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`     | seed-admin      | for seeding |                               | The throwaway admin; password 12+ characters. `npm run seed-admin` creates it or resets its password |
 | `WORKER_MODE`                       | process         | no          | `inline`                      | `standalone` runs only the worker                                       |
 | `CLAIM_BATCH`, `POLL_INTERVAL_MS`   | worker          | no          | `5`, `1000`                   | Jobs per claim; idle poll                                               |
 | `LEASE_MS`                          | worker          | no          | `60000`                       | Must exceed three call timeouts                                         |
