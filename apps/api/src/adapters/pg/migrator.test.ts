@@ -46,6 +46,7 @@ describe('migrations', () => {
     expect(ledger.rows.map((row) => row.filename)).toEqual([
       '001_init.sql',
       '002_job_payload_heartbeat.sql',
+      '003_admin_guild_single_owner.sql',
     ]);
   });
 
