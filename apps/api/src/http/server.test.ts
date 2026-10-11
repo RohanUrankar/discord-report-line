@@ -1,10 +1,12 @@
 import request from 'supertest';
+import type { CommandName } from '@report-line/shared';
 import { describe, expect, it } from 'vitest';
 
 import { InteractionController, type InteractionHandler } from '../app/interactions.js';
 import { ACTION_SUMMARIES, MESSAGES } from '../domain/messages.js';
 import type { StatusCounts } from '../domain/status.js';
 import type { LedgerService, RecordInput, RecordOutcome } from '../ports/ledger.js';
+import type { RuleReader, StoredRuleRow } from '../ports/rules.js';
 import type { StatusReader } from '../ports/status.js';
 import {
   CHANNEL_ID,
@@ -56,6 +58,14 @@ class FakeStatusReader implements StatusReader {
   }
 }
 
+class FakeRuleReader implements RuleReader {
+  public rows = new Map<string, StoredRuleRow>();
+  public failWith: Error | undefined;
+  public read(_guildId: string, command: CommandName): Promise<StoredRuleRow | undefined> {
+    return this.failWith ? Promise.reject(this.failWith) : Promise.resolve(this.rows.get(command));
+  }
+}
+
 class FakeLedger implements LedgerService {
   public readonly inputs: RecordInput[] = [];
   public constructor(private readonly behaviour: () => Promise<RecordOutcome>) {}
@@ -76,6 +86,7 @@ function harness(
   const logger = createLogger('debug', sink);
   const reader = new FakeStatusReader(behaviour);
   const ledger = new FakeLedger(ledgerBehaviour);
+  const rules = new FakeRuleReader();
   const controller = new InteractionController({
     publicKeyHex: keypair.publicKeyHex,
     replayWindowMs: REPLAY_WINDOW_MS,
@@ -83,6 +94,7 @@ function harness(
     recordTimeoutMs: RECORD_TIMEOUT_MS,
     clock: { nowMs: () => NOW_MS },
     ledger,
+    rules,
     statusReader: reader,
     ...(onJobEnqueued ? { onJobEnqueued } : {}),
   });
@@ -99,7 +111,7 @@ function harness(
     return post(body, signRequest(keypair, timestamp, body));
   };
 
-  return { app, keypair, sink, reader, ledger, post, signedPost };
+  return { app, keypair, sink, reader, ledger, rules, post, signedPost };
 }
 
 describe('POST /interactions: signature verification', () => {
@@ -535,7 +547,6 @@ describe('POST /interactions: /report with text', () => {
   });
 
   it.each([
-    ['no text option', commandPayload('report'), MESSAGES.emptyReport],
     ['only whitespace', reportPayload('   \n '), MESSAGES.emptyReport],
     [
       'a non-string text value',
@@ -601,12 +612,7 @@ describe('POST /interactions: /report with text', () => {
 describe('POST /interactions: other interactions', () => {
   it.each([
     ['an unknown command', commandPayload('nonsense'), MESSAGES.unknownCommand],
-    ['/report with no text', commandPayload('report'), MESSAGES.emptyReport],
-    [
-      'a button click, which is not built yet',
-      componentPayload('rpt:ack:1'),
-      MESSAGES.unknownCommand,
-    ],
+    ['a button with a malformed custom_id', componentPayload('rpt:ack:1'), MESSAGES.unknownButton],
     ['a command sent in a DM', dmCommandPayload('status'), MESSAGES.dmUnsupported],
   ])(
     'WHEN the interaction is %s THE SYSTEM SHALL reply with an ephemeral notice',

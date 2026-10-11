@@ -2,6 +2,7 @@ import type pg from 'pg';
 import request, { type Test } from 'supertest';
 
 import { PgLedger } from '../../src/adapters/pg/pgLedger.js';
+import { PgRuleReader } from '../../src/adapters/pg/pgRuleReader.js';
 import { PgStatusReader } from '../../src/adapters/pg/pgStatusReader.js';
 import { InteractionController } from '../../src/app/interactions.js';
 import { createLogger } from '../../src/http/middleware.js';
@@ -40,6 +41,7 @@ export function wire(
     recordTimeoutMs: options.recordTimeoutMs ?? 1200,
     clock,
     ledger: delayed(new PgLedger(pool), options.recordDelayMs),
+    rules: new PgRuleReader(pool),
     statusReader: new PgStatusReader(pool, clock),
   });
   const app = createServer({ controller, logger: createLogger('debug', sink), ...inertAuth() });

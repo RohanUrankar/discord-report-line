@@ -5,6 +5,8 @@ export const MESSAGES = {
   dmUnsupported: 'This bot only works in servers.',
   notRecorded: "We couldn't log that right now. Please try again in a minute.",
   statusUnavailable: "We couldn't check the status right now. Please try again in a minute.",
+  unknownForm: "I don't recognise that form. Run `/report` to start again.",
+  unknownButton: "I don't recognise that button.",
   emptyReport: 'Your report needs some text. Try `/report text: the printer is jammed`.',
   reportTooLong: 'Your report is too long. Keep it under 1,000 characters and try again.',
   mirrorFailed:

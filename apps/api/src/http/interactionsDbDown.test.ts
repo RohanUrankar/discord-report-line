@@ -20,7 +20,7 @@ describe('POST /interactions when Postgres is down', () => {
       expect(res.status).toBe(200);
       expect((res.body as Reply).data.content).toBe(MESSAGES.notRecorded);
       expect((res.body as Reply).data.flags).toBe(EPHEMERAL);
-      expect(sink.messages()).toContain('ledger.record_failed');
+      expect(sink.messages()).toContain('rule.read_failed');
       expect(sink.text()).not.toContain('postgresql://'); // the connection URL never reaches a log
     } finally {
       await pool.end();

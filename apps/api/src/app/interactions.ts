@@ -1,7 +1,9 @@
 import type { InteractionResponse } from '../domain/discordProtocol.js';
 import { deferMessage, message, pong } from '../domain/discordResponses.js';
 import { errorLogFields } from '../domain/errorFields.js';
+import { REPORT_TEXT_OPTION } from '../domain/commands.js';
 import { MESSAGES } from '../domain/messages.js';
+import { REPORT_MODAL_ID, REPORT_TEXT_INPUT_ID, reportModal } from '../domain/reportModal.js';
 import { statusText } from '../domain/status.js';
 import {
   classify,
@@ -10,16 +12,25 @@ import {
   type RawInteraction,
   type RouteDecision,
 } from '../domain/router.js';
-import { evaluate } from '../domain/rules.js';
 import { isTimestampFresh, verifySignature } from '../domain/signature.js';
 import type { Action } from '../domain/types.js';
 import type { Clock } from '../ports/clock.js';
 import type { LedgerService, RecordInput, RecordOutcome } from '../ports/ledger.js';
 import type { Logger } from '../ports/logger.js';
+import type { RuleReader } from '../ports/rules.js';
 import type { StatusReader } from '../ports/status.js';
 import { answeredRecord } from './answeredRecord.js';
 import { withDeadline } from './deadline.js';
-import { deferredReportRecord, readReportText } from './reportRecord.js';
+import { commandOrigin, reportModalOrigin, type RecordOrigin } from './recordOrigin.js';
+import {
+  deferredReportRecord,
+  readReportText,
+  validateReportText,
+  type ReportText,
+} from './reportRecord.js';
+import { resolveAction } from './ruleResolution.js';
+
+const DEFAULT_RULE_TIMEOUT_MS = 500;
 
 /** What the HTTP layer hands over: the three signed inputs, exactly as received. */
 export interface InboundInteraction {
@@ -41,8 +52,11 @@ export interface InteractionControllerOptions {
   statusTimeoutMs: number;
   /** Upper bound on recording an interaction; together with statusTimeoutMs it must fit inside 3 s. */
   recordTimeoutMs: number;
+  /** Upper bound on reading one rule; it runs before the record or the status read, inside the same 3 s. */
+  ruleTimeoutMs?: number;
   clock: Clock;
   ledger: LedgerService;
+  rules: RuleReader;
   statusReader: StatusReader;
   /** Called after a job was committed, so an in-process worker need not wait for its next poll. */
   onJobEnqueued?: () => void;
@@ -102,11 +116,12 @@ export class InteractionController implements InteractionHandler {
         return pong();
       case 'command':
         return this.respondToCommand(interaction, decision, log);
-      case 'component':
       case 'modalSubmit':
-        // Buttons and modals arrive in Step 5. Until then nothing registers them, so say so honestly.
+        return this.respondToModalSubmit(interaction, decision, log);
+      case 'component':
+        // Buttons arrive with the next change; until then say so honestly.
         log.warn({ kind: decision.kind }, 'interaction.unhandled_kind');
-        return message(MESSAGES.unknownCommand, { ephemeral: true });
+        return message(MESSAGES.unknownButton, { ephemeral: true });
       case 'unsupported':
         return respondToUnsupported(interaction, log);
     }
@@ -118,30 +133,35 @@ export class InteractionController implements InteractionHandler {
     log: Logger,
   ): Promise<InteractionResponse> {
     log.info({ command: decision.name, guild_id: decision.tenant.guildId }, 'interaction.received');
-    // No rule store yet: every command is enabled with its default config (DESIGN §8.3).
-    const action = evaluate(decision.name, { enabled: true }, null);
-    if (action.type === 'report') {
-      return this.deferReport(interaction, decision, action, log);
-    }
-    // Persist before we answer (CLAUDE.md). If we cannot, say so: a fake success would be a lost command.
-    const outcome = await this.record(answeredRecord(interaction.id, decision, action), log);
-    if (outcome === 'failed') {
+    const action = await this.actionFor(decision.tenant.guildId, decision.name, log);
+    if (action === 'unavailable') {
       return message(MESSAGES.notRecorded, { ephemeral: true });
     }
-    return this.replyFor(action, decision.tenant.guildId, log);
+    const origin = commandOrigin(decision);
+    if (action.type === 'report') {
+      if (decision.options[REPORT_TEXT_OPTION] === undefined) {
+        // No text: the form is the immediate response (a modal cannot follow a defer). Nothing has happened
+        // yet, so nothing is recorded; the submit is a new interaction that is (DESIGN rev 7).
+        log.info({}, 'interaction.modal_opened');
+        return reportModal();
+      }
+      return this.deferReport(interaction, origin, action, readReportText(decision.options), log);
+    }
+    // Persist before we answer (CLAUDE.md). If we cannot, say so: a fake success would be a lost command.
+    return this.answerWithoutJob(interaction.id, origin, action, log);
   }
 
   /**
-   * /report with text (DESIGN §5.2): record interaction, action and job in one transaction, then defer.
+   * /report with text, or a modal submit (DESIGN §5.2): record interaction, action and job in one transaction, then defer.
    * Nothing slow runs here; the worker mirrors to Slack and edits the deferred reply (CLAUDE.md, 3 s clock).
    */
   private async deferReport(
     interaction: RawInteraction,
-    decision: Extract<RouteDecision, { kind: 'command' }>,
+    origin: RecordOrigin,
     action: Extract<Action, { type: 'report' }>,
+    text: ReportText,
     log: Logger,
   ): Promise<InteractionResponse> {
-    const text = readReportText(decision.options);
     if (!text.ok) {
       const notice = text.reason === 'empty' ? MESSAGES.emptyReport : MESSAGES.reportTooLong;
       return message(notice, { ephemeral: true });
@@ -156,7 +176,7 @@ export class InteractionController implements InteractionHandler {
         interactionId: interaction.id,
         interactionToken: interaction.token,
         receivedAtMs: this.options.clock.nowMs(),
-        decision,
+        origin,
         action,
         text: text.text,
       }),
@@ -169,6 +189,61 @@ export class InteractionController implements InteractionHandler {
       this.options.onJobEnqueued?.();
     }
     return deferMessage({ ephemeral: action.ephemeral });
+  }
+
+  /**
+   * The modal's submit (DESIGN §5.2, §8.3): a fresh interaction with its own id, token and 3 s. The rule is
+   * evaluated again here, because this is where the defer and the job happen. Bad input gets an ephemeral
+   * notice and NO row, no job: nothing was done. A disabled command is answered and recorded like any other.
+   */
+  private async respondToModalSubmit(
+    interaction: RawInteraction,
+    decision: Extract<RouteDecision, { kind: 'modalSubmit' }>,
+    log: Logger,
+  ): Promise<InteractionResponse> {
+    log.info({ guild_id: decision.tenant.guildId }, 'interaction.modal_submitted');
+    if (decision.customId !== REPORT_MODAL_ID) {
+      return message(MESSAGES.unknownForm, { ephemeral: true });
+    }
+    const action = await this.actionFor(decision.tenant.guildId, 'report', log);
+    if (action === 'unavailable') {
+      return message(MESSAGES.notRecorded, { ephemeral: true });
+    }
+    const origin = reportModalOrigin(decision);
+    if (action.type !== 'report') {
+      return this.answerWithoutJob(interaction.id, origin, action, log);
+    }
+    const raw = Object.hasOwn(decision.fields, REPORT_TEXT_INPUT_ID)
+      ? decision.fields[REPORT_TEXT_INPUT_ID]
+      : undefined;
+    return this.deferReport(interaction, origin, action, validateReportText(raw), log);
+  }
+
+  private async actionFor(
+    guildId: string,
+    command: string,
+    log: Logger,
+  ): Promise<Action | 'unavailable'> {
+    return resolveAction(
+      this.options.rules,
+      guildId,
+      command,
+      this.options.ruleTimeoutMs ?? DEFAULT_RULE_TIMEOUT_MS,
+      log,
+    );
+  }
+
+  private async answerWithoutJob(
+    interactionId: string,
+    origin: RecordOrigin,
+    action: Exclude<Action, { type: 'report' }>,
+    log: Logger,
+  ): Promise<InteractionResponse> {
+    const outcome = await this.record(answeredRecord(interactionId, origin, action), log);
+    if (outcome === 'failed') {
+      return message(MESSAGES.notRecorded, { ephemeral: true });
+    }
+    return this.replyFor(action, origin.tenant.guildId, log);
   }
 
   /**
@@ -246,5 +321,11 @@ function respondToUnsupported(interaction: RawInteraction, log: Logger): Interac
     return message(MESSAGES.dmUnsupported, { ephemeral: true });
   }
   log.warn({ type: interaction.type }, 'interaction.unsupported');
+  if (interaction.type === INTERACTION_TYPE.MESSAGE_COMPONENT) {
+    return message(MESSAGES.unknownButton, { ephemeral: true });
+  }
+  if (interaction.type === INTERACTION_TYPE.MODAL_SUBMIT) {
+    return message(MESSAGES.unknownForm, { ephemeral: true });
+  }
   return message(MESSAGES.unknownCommand, { ephemeral: true });
 }

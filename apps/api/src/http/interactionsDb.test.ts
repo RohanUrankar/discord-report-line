@@ -65,14 +65,14 @@ describe('POST /interactions with real Postgres: /report', () => {
     expect(await countRows(pool, 'job')).toBe(1);
   });
 
-  it('WHEN /report has no text THE SYSTEM SHALL record nothing', async () => {
+  it('WHEN /report has no text THE SYSTEM SHALL open the modal and record nothing', async () => {
     const pool = db();
     await truncateAll(pool);
     const { send } = wire(pool);
 
     const res = await send(commandPayload('report')).expect(200);
 
-    expect((res.body as Reply).data.content).toContain('/report');
+    expect((res.body as Reply).type).toBe(9);
     expect(await countRows(pool, 'interaction')).toBe(0);
   });
 });

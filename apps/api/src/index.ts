@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 
 import { PgLedger } from './adapters/pg/pgLedger.js';
 import { createRequestPool } from './adapters/pg/pool.js';
+import { PgRuleReader } from './adapters/pg/pgRuleReader.js';
 import { PgStatusReader } from './adapters/pg/pgStatusReader.js';
 import { SystemClock } from './adapters/systemClock.js';
 import { InteractionController } from './app/interactions.js';
@@ -83,6 +84,7 @@ async function startServerWithWorker(config: ServerConfig): Promise<void> {
     recordTimeoutMs: config.RECORD_TIMEOUT_MS,
     clock,
     ledger: new PgLedger(requestPool),
+    rules: new PgRuleReader(requestPool),
     statusReader: new PgStatusReader(requestPool, clock),
     onJobEnqueued: () => {
       worker.nudge();

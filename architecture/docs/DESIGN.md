@@ -10,6 +10,8 @@
 
 **Changes 2026-10-12 (rev 6):** connecting a server is first-claim-wins: `ADMIN_GUILD` is keyed by `guild_id` alone, so a server has at most one managing admin (§9 Rev 6 decisions, ADR-0003 consequences). Done at the human's explicit instruction while building Step 4 item 3 (connect flow, settings, rules).
 
+**Changes 2026-10-12 (rev 7):** Step 5 decisions (§5.5): verified component numbers, the modal path, runtime rule reads, report buttons. Rule reads at runtime were missing after Step 4 (the controller used defaults only) and are now wired through one `resolveAction`.
+
 ---
 
 ## 0. How to read this
@@ -295,6 +297,31 @@ The processed `/report` reply (or a follow-up) carries an action row with button
 | button (3) slow | type 6 defer update → edit later | no spinner, then change |
 
 Every deferred row above assumes the follow-up lands inside the 15-minute token window. If the worker finishes after `token_expires_at` has passed, the `PATCH @original` rows fall back to a channel post via the **bot token** (which loses ephemerality); see §10.2 and the response lifecycle in §11.2. Duplicate delivery of any row is absorbed by the dedupe row (§10.3), so the effect is exactly-once regardless of how many times Discord delivers.
+
+### 5.5 Step 5 decisions (rev 7)
+
+**Verified component numbers** (read on 2026-10-12, not coded from memory):
+
+| Thing | Value | Source |
+|---|---|---|
+| Component types | Action Row 1, Button 2, Text Input 4, Label 18 (String Select 3, others unused) | [components/reference](https://docs.discord.com/developers/components/reference) |
+| Button styles | Primary 1, Secondary 2, Success 3, Danger 4 (Link 5, Premium 6 unused) | same |
+| Text input styles | Short 1, Paragraph 2 | same |
+| `custom_id` | 1 to 100 characters, unique per component within a message | same |
+| Label | `{type:18, label (max 45), description? (max 100), component}`: ONE child under singular `component` | same |
+| Callback types | 6 DEFERRED_UPDATE_MESSAGE, 7 UPDATE_MESSAGE, 9 MODAL (not for PING or MODAL_SUBMIT) | [receiving-and-responding](https://docs.discord.com/developers/interactions/receiving-and-responding) |
+| Modal | `{custom_id (1-100), title (max 45), components (1-5)}` | same |
+| MODAL_SUBMIT, Label layout | `data.components[]: {type:18, component:{type:4, custom_id, value}}` | components/reference |
+| MODAL_SUBMIT, legacy layout | `data.components[]: {type:1, components:[{type:4, custom_id, value}]}` (plural; Action Row text inputs in modals are deprecated) | same, structure only; the docs show no legacy submit example, so the router accepts both and tests cover both |
+
+**Modal path decisions.**
+- *Modal-open is not recorded.* `/report` with no `text` option answers type 9 and writes nothing: no effect has happened, and an action-less row would clutter the log. This matches Step 3, where a `/report` that did nothing (empty text) is not recorded either. A disabled `/report` never opens the modal; it gets the disabled notice, recorded like any disabled command.
+- *Present-but-blank option* (`text: "   "`) is an error notice, not a modal: the option was supplied, so the user chose the text path.
+- *Submit validation.* `custom_id` must equal `report_modal` (else ephemeral "I don't recognise that form", no row). The text is the `report_text` field, trimmed, 1 to 1000 characters counted as code points (same function as the option). Missing, blank or over-length: ephemeral type 4 notice, **no interaction row and no job**, because nothing was done and Discord already enforced the limits in its client. Cost, accepted: a rejected submit loses what the user typed (a modal cannot answer a MODAL_SUBMIT).
+- *The rule is evaluated again at submit*: disabled gives the disabled notice (recorded as `answered` / `disabled`, no job); the type 5 `ephemeral` flag, the only flag set, comes from the rule at submit time.
+- *Row shape.* The MODAL_SUBMIT row has `type = 5`, `command_name = 'report'` (so the log labels it like the text path), `custom_id = 'report_modal'` (our constant) and `options = NULL`. The text lives only in `job.payload`.
+
+**Rules at runtime.** After Step 4 the controller still used defaults. Now `app/ruleResolution.ts: resolveAction` is the only place a stored rule becomes an `Action`: it reads `command_rule` for (signed guild id, command) with a 500 ms deadline, runs `validateRule` (an invalid row logs `rule.invalid_stored` with field paths only), and calls `evaluate`, which falls back to `DEFAULT_RULES`. If the rule cannot be read at all the user gets the ephemeral "not logged" notice rather than a guess about whether the command is switched off.
 
 ---
 

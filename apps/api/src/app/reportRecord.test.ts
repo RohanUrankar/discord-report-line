@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { ACTION_SUMMARIES } from '../domain/messages.js';
-import { deferredReportRecord, readReportText } from './reportRecord.js';
+import { commandOrigin } from './recordOrigin.js';
+import { deferredReportRecord, readReportText, validateReportText } from './reportRecord.js';
 
 const decision = {
   kind: 'command' as const,
@@ -42,7 +43,7 @@ describe('deferredReportRecord', () => {
       interactionId: '900000000000000004',
       interactionToken: 'tok',
       receivedAtMs: 1_000_000,
-      decision,
+      origin: commandOrigin(decision),
       action: { ...action, ...overrides },
       text: 'printer',
     });
@@ -68,5 +69,12 @@ describe('deferredReportRecord', () => {
 
   it('keeps the report text out of the action summary', () => {
     expect(build().action.summary).not.toContain('printer');
+  });
+});
+
+describe('validateReportText', () => {
+  it('trims, and treats a missing value like empty text', () => {
+    expect(validateReportText('  hi ')).toEqual({ ok: true, text: 'hi' });
+    expect(validateReportText(undefined)).toEqual({ ok: false, reason: 'empty' });
   });
 });

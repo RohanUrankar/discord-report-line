@@ -2,23 +2,25 @@
 
 A Discord bot that takes reports from a server, records each one exactly once, mirrors it to a team channel, and shows an admin dashboard of what happened. Built as a Node.js + TypeScript + Express API, an Angular dashboard and PostgreSQL. The design lives in [`architecture/docs/DESIGN.md`](architecture/docs/DESIGN.md); the rules every change must respect are in [`CLAUDE.md`](CLAUDE.md).
 
-**Status: build step 3 of 6 (the core loop).** `/report text:...` is recorded, deferred within 3 s, mirrored to Slack by a background worker and answered by editing the deferred reply. Failed calls are retried with backoff, and a dead interaction token falls back to a channel post. The modal, buttons, LLM tagging and the dashboard come in later steps.
+**Status: build step 3 of 6 (the core loop).** `/report text:...` is recorded, deferred within 3 s, mirrored to Slack by a background worker and answered by editing the deferred reply. Failed calls are retried with backoff, and a dead interaction token falls back to a channel post. Step 5 adds the form (modal) and rules read at runtime; buttons are in progress.
 
 ## What works today
 
-| Request                                                   | Result                                                                                             |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Missing, malformed, forged or tampered signature          | `401`, no body, nothing stored                                                                     |
-| Correct signature but a timestamp more than 5 minutes off | `401` (replay protection)                                                                          |
-| PING (type 1)                                             | `200 {"type":1}`                                                                                   |
-| `/status`                                                 | Recorded, then an inline private reply with this server's report counts                            |
-| An unknown or turned-off command                          | Recorded, then a short private notice                                                              |
-| The same interaction delivered again                      | Not recorded again; answered normally                                                              |
-| The database is down or too slow                          | A private "we couldn't log that" notice within 3 s, never a 500                                    |
-| `/report text:...`                                        | Recorded with its job, then "thinking..." at once; the worker mirrors to Slack and edits the reply |
-| `/report` with no text, or over 1000 characters           | A short private notice, nothing stored                                                             |
-| A button, a DM                                            | A short private notice (not recorded yet)                                                          |
-| `GET /healthz`                                            | `200 {"status":"ok"}`                                                                              |
+| Request                                                   | Result                                                                                                                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Missing, malformed, forged or tampered signature          | `401`, no body, nothing stored                                                                                                             |
+| Correct signature but a timestamp more than 5 minutes off | `401` (replay protection)                                                                                                                  |
+| PING (type 1)                                             | `200 {"type":1}`                                                                                                                           |
+| `/status`                                                 | Recorded, then an inline private reply with this server's report counts                                                                    |
+| An unknown or turned-off command                          | Recorded, then a short private notice                                                                                                      |
+| The same interaction delivered again                      | Not recorded again; answered normally                                                                                                      |
+| The database is down or too slow                          | A private "we couldn't log that" notice within 3 s, never a 500                                                                            |
+| `/report text:...`                                        | Recorded with its job, then "thinking..." at once; the worker mirrors to Slack and edits the reply                                         |
+| `/report` with no text                                    | Opens a form (modal); nothing is stored until it is submitted                                                                              |
+| A submitted form                                          | Same path as `/report text:...` (fresh interaction, deferred, worker); blank or over 1000 characters gets a private notice, nothing stored |
+| `/report text:` blank or over 1000 characters             | A short private notice, nothing stored                                                                                                     |
+| A button, a DM                                            | A short private notice (not recorded yet)                                                                                                  |
+| `GET /healthz`                                            | `200 {"status":"ok"}`                                                                                                                      |
 
 ## Run it locally
 

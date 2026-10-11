@@ -1,11 +1,10 @@
 import { REPORT_TEXT_MAX_LENGTH, REPORT_TEXT_OPTION } from '../domain/commands.js';
 import { ACTION_SUMMARIES } from '../domain/messages.js';
-import { INTERACTION_TYPE, type RouteDecision } from '../domain/router.js';
 import { TOKEN_SAFE_LIFETIME_MS } from '../domain/reportJob.js';
 import type { Action } from '../domain/types.js';
 import type { RecordInput } from '../ports/ledger.js';
+import type { RecordOrigin } from './recordOrigin.js';
 
-type CommandDecision = Extract<RouteDecision, { kind: 'command' }>;
 type ReportAction = Extract<Action, { type: 'report' }>;
 
 /** What the user typed, or why it cannot be used. */
@@ -16,7 +15,11 @@ export type ReportText = { ok: true; text: string } | { ok: false; reason: 'empt
  * a payload is only trusted for who signed it, not for being well-formed (DESIGN §5.2).
  */
 export function readReportText(options: Record<string, unknown>): ReportText {
-  const raw = options[REPORT_TEXT_OPTION];
+  return validateReportText(options[REPORT_TEXT_OPTION]);
+}
+
+/** The same check for the modal's text input (DESIGN §5.2): a missing field is just empty text. */
+export function validateReportText(raw: unknown): ReportText {
   const text = typeof raw === 'string' ? raw.trim() : '';
   if (text === '') {
     return { ok: false, reason: 'empty' };
@@ -30,28 +33,28 @@ export interface DeferredReportInput {
   interactionId: string;
   interactionToken: string;
   receivedAtMs: number;
-  decision: CommandDecision;
+  origin: RecordOrigin;
   action: ReportAction;
   text: string;
 }
 
 /**
- * The ledger record for a deferred /report: interaction `deferred`, action `report`, and the outbox job with
- * its token, expiry and rule snapshot (DESIGN §9, §11.3). The summary is fixed text: the report itself is
- * not copied into the action row.
+ * The ledger record for a deferred /report (text option or modal submit): interaction `deferred`, action
+ * `report`, and the outbox job with its token, expiry and rule snapshot (DESIGN §9, §11.3). The summary is
+ * fixed text: the report itself is not copied into the action row.
  */
 export function deferredReportRecord(input: DeferredReportInput): RecordInput {
-  const { decision, action } = input;
+  const { origin, action } = input;
   return {
     interaction: {
       id: input.interactionId,
-      guildId: decision.tenant.guildId,
-      channelId: decision.tenant.channelId,
-      userId: decision.actor.userId,
-      type: INTERACTION_TYPE.APPLICATION_COMMAND,
-      commandName: decision.name,
-      customId: null,
-      options: decision.options,
+      guildId: origin.tenant.guildId,
+      channelId: origin.tenant.channelId,
+      userId: origin.actor.userId,
+      type: origin.type,
+      commandName: origin.commandName,
+      customId: origin.customId,
+      options: origin.options,
       status: 'deferred',
     },
     action: {
@@ -65,8 +68,8 @@ export function deferredReportRecord(input: DeferredReportInput): RecordInput {
       tokenExpiresAt: new Date(input.receivedAtMs + TOKEN_SAFE_LIFETIME_MS),
       payload: {
         text: input.text,
-        userId: decision.actor.userId,
-        channelId: decision.tenant.channelId,
+        userId: origin.actor.userId,
+        channelId: origin.tenant.channelId,
         ephemeral: action.ephemeral,
         replyMessage: action.replyMessage,
         mirror: action.mirror,
