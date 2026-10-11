@@ -144,6 +144,25 @@ describe('dashboard served from the API origin', () => {
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 
+  it.each([
+    '/api/%2e%2e/index.html',
+    '/api/%2E%2E/styles.css',
+    '/API/%2e%2e/index.html',
+    '/api/..%2findex.html',
+  ])(
+    'WHEN %s (dot segments under /api) is requested THE SYSTEM SHALL answer the JSON 404, not a file from the build',
+    async (route) => {
+      const { app } = await serverWith(distDir);
+
+      const res = await request(app).get(route).set('Accept', 'text/html');
+
+      expect(res.status).toBe(404);
+      expect(res.headers['content-type']).toMatch(/application\/json/);
+      expect(res.text).not.toContain('SPA-SHELL');
+      expect(res.text).not.toContain('margin:0');
+    },
+  );
+
   it('WHEN a non-GET request hits a SPA route THE SYSTEM SHALL not answer with index.html', async () => {
     const { app } = await serverWith(distDir);
 

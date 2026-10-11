@@ -59,6 +59,30 @@ beforeEach(async () => {
   await truncateAll(getPool());
 });
 
+describe('a request carrying two session cookies', () => {
+  it.each([
+    ['the valid one first', (valid: string) => `${valid}; ${COOKIE}=planted`],
+    ['the valid one last', (valid: string) => `${COOKIE}=planted; ${valid}`],
+    ['two copies of the valid one', (valid: string) => `${valid}; ${valid}`],
+  ])(
+    'WHEN the session cookie appears twice (%s) THE SYSTEM SHALL treat the session as absent',
+    async (_name, header) => {
+      const server = app(new ManualClock(Date.now()));
+      await seed();
+      const login = await request(server)
+        .post('/api/auth/login')
+        .send({ email: EMAIL, password: PASSWORD });
+      const valid = cookieOf(login);
+
+      const single = await request(server).get('/api/auth/me').set('Cookie', valid);
+      const doubled = await request(server).get('/api/auth/me').set('Cookie', header(valid));
+
+      expect(single.status).toBe(200);
+      expect(doubled.status).toBe(401);
+    },
+  );
+});
+
 describe('dashboard sign-in against Postgres', () => {
   it('WHEN the seeded admin signs in, asks who they are and signs out THE SYSTEM SHALL keep only hashes at rest', async () => {
     const clock = new ManualClock(Date.now());

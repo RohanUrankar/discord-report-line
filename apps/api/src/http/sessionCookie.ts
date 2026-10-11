@@ -29,13 +29,16 @@ export function readSessionCookie(
     return undefined;
   }
   const wanted = sessionCookieName(settings);
+  const values: string[] = [];
   for (const part of header.split(';')) {
     const separator = part.indexOf('=');
     if (separator !== -1 && part.slice(0, separator).trim() === wanted) {
-      return part.slice(separator + 1).trim();
+      values.push(part.slice(separator + 1).trim());
     }
   }
-  return undefined;
+  // Two cookies with the session's name (a sibling domain can plant one) make the browser's choice ambiguous:
+  // trust neither, whatever the order, and the caller sees "no session".
+  return values.length === 1 ? values[0] : undefined;
 }
 
 function attributes(settings: SessionCookieSettings): {

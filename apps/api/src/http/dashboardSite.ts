@@ -13,7 +13,7 @@ const ONE_YEAR_SECONDS = 31_536_000;
 const HSTS_SECONDS = 15_552_000; // 180 days; no includeSubDomains, the host may share a parent domain
 
 /** Routes owned by the server. The SPA fallback must never answer for them. */
-const SERVER_PATHS = /^\/(?:api|interactions|healthz)(?:\/|$)/;
+const SERVER_PATHS = /^\/(?:api|interactions|healthz)(?:\/|$)/i;
 /** A request for `something.ext` is a file, not an Angular route: a missing file is a real 404. */
 const HAS_FILE_EXTENSION = /\.[A-Za-z0-9]{1,10}$/;
 /** The Angular builder names bundles `main-7WQXNTDT.js`: content-hashed, so safe to cache forever. */
@@ -88,16 +88,23 @@ export async function findDashboardDir(
 export function mountDashboard(app: Express, root: string): void {
   const indexPath = path.join(root, INDEX_FILE);
 
-  app.use(
-    express.static(root, {
-      index: false, // index.html goes through the fallback below, so it gets one cache policy
-      dotfiles: 'ignore',
-      fallthrough: true,
-      setHeaders: (res, filePath) => {
-        res.setHeader('Cache-Control', cacheControlFor(filePath));
-      },
-    }),
-  );
+  const staticFiles = express.static(root, {
+    index: false, // index.html goes through the fallback below, so it gets one cache policy
+    dotfiles: 'ignore',
+    fallthrough: true,
+    setHeaders: (res, filePath) => {
+      res.setHeader('Cache-Control', cacheControlFor(filePath));
+    },
+  });
+  // The static layer decodes the path itself, so `/api/%2e%2e/index.html` would resolve to a file inside the build.
+  // Decide on the raw path instead: anything under a server route never reaches the files.
+  app.use((req, res, next) => {
+    if (SERVER_PATHS.test(req.path)) {
+      next();
+      return;
+    }
+    staticFiles(req, res, next);
+  });
 
   const fallback: RequestHandler = (req, res, next) => {
     const isPageRequest = req.method === 'GET' || req.method === 'HEAD';
