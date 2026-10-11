@@ -8,6 +8,8 @@
 **Changes 2026-10-11 (rev 3, 3.1):** proposals 0003 and 0004 accepted; `node:crypto` allowed in `domain/signature.ts` only. `packages/shared` is a leaf package (zod only) and the single home of enums, rule schemas and defaults; `domain` may import it (§7, §8.3). §11.3 end state and skip conditions made consistent.
 **Changes 2026-10-11 (rev 4):** §9 data-model decisions for Step 2: guild upsert in the ledger txn, what gets recorded, UTC "today", pg + plain SQL migrations, request-path DB timeouts.
 
+**Changes 2026-10-12 (rev 6):** connecting a server is first-claim-wins: `ADMIN_GUILD` is keyed by `guild_id` alone, so a server has at most one managing admin (§9 Rev 6 decisions, ADR-0003 consequences). Done at the human's explicit instruction while building Step 4 item 3 (connect flow, settings, rules).
+
 ---
 
 ## 0. How to read this
@@ -622,7 +624,7 @@ Every enum is an `as const` tuple defined once in `packages/shared/src/enums.ts`
 ```mermaid
 erDiagram
     ADMIN ||--o{ ADMIN_GUILD : manages
-    GUILD ||--o{ ADMIN_GUILD : managed_by
+    GUILD ||--o| ADMIN_GUILD : managed_by
     GUILD ||--o{ INTERACTION : scopes
     GUILD ||--o{ COMMAND_RULE : configures
     ADMIN ||--o{ SESSION : has
@@ -728,6 +730,14 @@ erDiagram
 - **"Today"** in `/status` means the current UTC day. The worker heartbeat stays `null` until Step 3 decides where it is stored.
 - **Persistence stack.** `pg` with parameterised SQL. No ORM and no query builder: the load-bearing SQL (`ON CONFLICT … RETURNING`, `FOR UPDATE SKIP LOCKED`) is plain SQL, and an abstraction would hide exactly what a reviewer needs to see. Migrations are numbered plain `.sql` files applied in order by a small runner that records applied files in a `schema_migrations` table.
 - **DB timeouts on the request path.** The ledger write must finish inside the 3 s window. Use pool `connectionTimeoutMillis` of 1000 and a `statement_timeout` of 1500 ms on the request path. When the database is unavailable, reply with ephemeral `MESSAGES.notRecorded` within 3 s (resilience skill), never a 500 and never a fake success.
+
+**Rev 6 data-model decision (connect flow, F-02):** an admin connects a server by entering its id. Who may claim a server was not decided before, and "any admin may claim any server the bot is in" would let admin A take over a server admin B already runs. Decision: **first claim wins, one managing admin per server.**
+- `ADMIN_GUILD` primary key is `guild_id` alone (migration 003; `admin_id` keeps an index). The database, not the code, enforces "at most one admin per server".
+- `POST /api/guilds { guildId }` is one statement: `INSERT INTO admin_guild (guild_id, admin_id) SELECT id, $admin FROM guild WHERE id = $guild ON CONFLICT (guild_id) DO UPDATE SET admin_id = admin_guild.admin_id WHERE admin_guild.admin_id = EXCLUDED.admin_id RETURNING ...`. A free server is claimed; the same admin claiming again gets the row back (idempotent, 200); a server another admin manages returns no row. There is no SELECT-then-INSERT, so two admins racing for one server get exactly one winner.
+- The server must already exist as a `GUILD` row (the bot has seen an interaction from it, §9 Rev 4). The connect call never creates a guild.
+- **No enumeration beyond the necessary:** "no such server" and "managed by someone else" return the same 404 `NOT_FOUND` body. The only thing the answer reveals is that a server is claimable (200), which the caller then owns.
+- **Residual weakness, accepted for the demo:** nothing proves the admin actually administers that Discord server. Anyone with a dashboard account who knows (or guesses) the id of an unclaimed server the bot is in can claim it first. With one seeded throwaway admin this is acceptable. Production would verify through Discord OAuth2 (`identify` + `guilds` scopes, `MANAGE_GUILD` / owner on the guild) before writing `ADMIN_GUILD`, and would let a verified owner reclaim a server. Not built.
+- Disconnecting and transferring a server are out of scope; they would be explicit, audited operations.
 
 **Indexes:** `JOB (status, next_run_at)` for the claim query; `INTERACTION (guild_id, created_at DESC)` for the log; `JOB_ATTEMPT (job_id, attempt_no)`; `SESSION (expires_at)` for cleanup; unique `COMMAND_RULE (guild_id, command_name)`.
 
@@ -1044,7 +1054,7 @@ Scoring weights reflect the QA priority: **Security 0.30, Reliability 0.30, Resp
 | Discord OAuth only | "Real" login, maps admins→guilds they manage | Needs client secret + full flow; more to build; brief says optional | 3.4 |
 
 - **Hosting constraint (from this decision):** the SPA and the API **must share one origin**. A `SameSite=Lax` cookie is not sent on cross-site `fetch`/XHR, so an SPA on one host (e.g. `*.vercel.app`) calling an API on another (e.g. `*.onrender.com`) logs in "successfully" and then gets 401 on every call. Both of those domains are on the Public Suffix List, so even two subdomains of the same platform count as cross-site. Switching to `SameSite=None` does not rescue it: Safari and Firefox block third-party cookies by default. Decision: Express serves the Angular build (`express.static` + an `index.html` fallback for non-`/api` routes), one deployable, one origin, no CORS config. A host-level rewrite proxy (SPA host forwarding `/api` to the API host) also works but adds a hop and a second deploy, and proxies can buffer or cut long-lived SSE streams.
-- **Consequences:** smallest secure thing that satisfies the brief. Discord OAuth can be added later to auto-populate `admin_guild` from `/users/@me/guilds`; until then, connecting a server writes `admin_guild`.
+- **Consequences:** smallest secure thing that satisfies the brief. Discord OAuth can be added later to auto-populate `admin_guild` from `/users/@me/guilds`; until then, connecting a server writes `admin_guild`. **Rev 6:** that write is first-claim-wins with one managing admin per server (§9 "Rev 6 data-model decision"). It is not proof of Discord ownership: anyone with a dashboard account who knows an unclaimed server's id can claim it. Acceptable for one throwaway admin; Discord OAuth2 with a `MANAGE_GUILD` check is the production fix and the revisit trigger below.
 - **Revisit when:** you want admins to self-serve with their real Discord identity.
 
 ### ADR-0004: Node + TypeScript + Express for the API (lightly held)
