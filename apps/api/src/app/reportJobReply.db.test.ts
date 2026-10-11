@@ -20,7 +20,8 @@ import {
   slackWebhookUrl,
   usePipeline,
 } from '../../test/helpers/workerHarness.js';
-import type { StubRequest } from '../../test/helpers/stubServer.js';
+import { thenOk, type StubRequest } from '../../test/helpers/stubServer.js';
+import { reportButtons } from '../domain/reportButtons.js';
 
 const db = useTestDatabase();
 const pipeline = usePipeline(db);
@@ -65,6 +66,7 @@ describe('report job: filling the deferred reply', () => {
     expect(bodyOf(patch)).toEqual({
       content: 'Report logged. The team has been notified.',
       allowed_mentions: { parse: [] },
+      components: [reportButtons(INTERACTION_ID)],
     });
     expect(h.slack.requests).toHaveLength(1);
     expect(await readJob(db())).toMatchObject({
@@ -73,6 +75,23 @@ describe('report job: filling the deferred reply', () => {
       interaction_token: null,
       mirror_status: 'sent',
     });
+  });
+
+  it('WHEN the PATCH is retried THE SYSTEM SHALL send the same body, buttons included, and the buttons SHALL hold only the report id', async () => {
+    const h = pipeline();
+    h.discord.behave(thenOk(500));
+    await seedReport(db(), h);
+
+    await h.drain();
+    h.clock.advance(60_000);
+    await h.drain();
+
+    expect(patches()).toHaveLength(2);
+    expect(patches()[1]?.body).toBe(patches()[0]?.body);
+    const [row] = (JSON.parse(patches()[0]?.body ?? '{}') as { components: unknown[] }).components;
+    expect(row).toEqual(reportButtons(INTERACTION_ID));
+    expect(patches()[0]?.body).not.toContain(FAKE_INTERACTION_TOKEN);
+    expect(patches()[0]?.body).not.toContain('printer');
   });
 
   it('WHEN the same /report is delivered 10 times concurrently THE SYSTEM SHALL end with one row, one job, one Slack post and one edited reply', async () => {
@@ -216,6 +235,7 @@ describe('report job: filling the deferred reply', () => {
     expect(body.content).not.toContain('printer');
     expect(posts()[0]?.body).not.toContain('printer');
     expect(body.allowed_mentions).toEqual({ parse: [], users: [USER_ID] });
+    expect(posts()[0]?.body).not.toContain('components');
   });
 
   it('WHEN a public report falls back THE SYSTEM SHALL quote it, still pinging only the reporter and never anyone named in the text', async () => {
@@ -231,6 +251,7 @@ describe('report job: filling the deferred reply', () => {
     const body = bodyOf(posts()[0]);
     expect(body.content).toContain('hey @everyone');
     expect(body.allowed_mentions).toEqual({ parse: [], users: [USER_ID] });
+    expect(posts()[0]?.body).not.toContain('components');
   });
 
   it('WHEN Discord answers 429 with retry_after THE SYSTEM SHALL schedule the next attempt no earlier than that', async () => {

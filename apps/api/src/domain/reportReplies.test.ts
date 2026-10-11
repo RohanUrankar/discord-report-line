@@ -27,6 +27,7 @@ describe('reportResultBody (PATCH @original)', () => {
       reportId: REPORT_ID,
     });
     expect(body.components).toEqual([reportButtons(REPORT_ID)]);
+    expect(JSON.stringify(body.components)).not.toMatch(/token|printer/i);
   });
 
   it('never sets flags (visibility was fixed at defer time)', () => {
@@ -37,6 +38,19 @@ describe('reportResultBody (PATCH @original)', () => {
 });
 
 describe('reportFallbackBody (bot-token channel post)', () => {
+  it.each([true, false])(
+    'carries no buttons, with ephemeral = %s: a public post must not let anyone act on a private report',
+    (ephemeral) => {
+      const body = reportFallbackBody({
+        userId: USER_ID,
+        reference: 'a1b2c3',
+        ephemeral,
+        text: 'x',
+      });
+      expect(body).not.toHaveProperty('components');
+    },
+  );
+
   const SECRET_TEXT = 'the CFO is embezzling';
 
   it('WHEN the report was ephemeral THE SYSTEM SHALL NOT include its text in the public fallback', () => {

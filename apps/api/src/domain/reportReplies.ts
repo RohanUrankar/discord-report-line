@@ -22,9 +22,13 @@ export function reportResultBody(result: ReportResult): MessageBody {
     ? `${result.replyMessage}\n${MESSAGES.mirrorFailed}`
     : result.replyMessage;
   const body = plainBody(content);
-  return result.reportId === undefined
-    ? body
-    : { ...body, components: [reportButtons(result.reportId)] };
+  if (result.reportId === undefined) {
+    return body;
+  }
+  // Same bytes on every retry of the PATCH: the buttons depend only on the report id, so adding them does
+  // not change the idempotency of editing @original.
+  const row = reportButtons(result.reportId);
+  return { ...body, components: row === undefined ? [] : [row] };
 }
 
 export interface ReportFallback {
@@ -37,7 +41,8 @@ export interface ReportFallback {
 
 /**
  * Public bot-token channel post used when the interaction token is dead (§11.3 step 4). Pings only the
- * reporter. Quotes their text only if they chose a public report, and never more than ~100 characters.
+ * reporter. It carries NO buttons (DESIGN §5.5): a public message would let anyone in the channel act on a
+ * report the reporter meant to keep private, and an ephemeral reply's buttons only ever reached the reporter. Quotes their text only if they chose a public report, and never more than ~100 characters.
  */
 export function reportFallbackBody(fallback: ReportFallback): MessageBody {
   const hasValidUser = isSnowflake(fallback.userId);

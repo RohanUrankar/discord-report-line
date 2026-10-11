@@ -162,7 +162,11 @@ export class ReportJobRunner {
     const result = await this.deps.discord.editOriginal(
       this.options.appId,
       token,
-      reportResultBody({ replyMessage: payload.replyMessage, mirrorFailed: pass.mirrorFailed }),
+      reportResultBody({
+        replyMessage: payload.replyMessage,
+        mirrorFailed: pass.mirrorFailed,
+        reportId: job.interactionId,
+      }),
     );
     if (result.ok) {
       await this.commit(pass, this.attempt(pass, 'followup', 'success', startedAt, result.status), {

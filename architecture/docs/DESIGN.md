@@ -321,6 +321,12 @@ Every deferred row above assumes the follow-up lands inside the 15-minute token 
 - *The rule is evaluated again at submit*: disabled gives the disabled notice (recorded as `answered` / `disabled`, no job); the type 5 `ephemeral` flag, the only flag set, comes from the rule at submit time.
 - *Row shape.* The MODAL_SUBMIT row has `type = 5`, `command_name = 'report'` (so the log labels it like the text path), `custom_id = 'report_modal'` (our constant) and `options = NULL`. The text lives only in `job.payload`.
 
+**Buttons on the reply.**
+- The `PATCH @original` body carries one action row: Acknowledge (style 3) and Escalate (style 1), `custom_id` `rpt:ack:{id}` and `rpt:esc:{id}`, built and parsed only in `reportButtons.ts`. `{id}` is the report's interaction id (a snowflake, 20 characters at most), so a `custom_id` is at most 28 characters, never the token, never report text.
+- The body depends only on the rule snapshot, the mirror outcome and the report id, so every retry of the PATCH sends the same bytes and stays idempotent.
+- *The channel fallback carries no buttons.* It is a public post made when the reply is impossible. Buttons on it would let anyone in the channel act on a report that may have been private, and the report's own text is never in it when the rule was ephemeral. The fallback shows "<@user>, your report was logged (ref …)"; the reference is the interaction id. A report that ended in a fallback therefore cannot be acknowledged or escalated from Discord; the log shows it.
+- Because the default rule is ephemeral, the default reply (and so its buttons) is visible to the reporter only. Acknowledge and Escalate are then used by the person who filed the report. Make `report.ephemeral` false to let a team act on reports. See the risk note in §5.5 "Who may click".
+
 **Rules at runtime.** After Step 4 the controller still used defaults. Now `app/ruleResolution.ts: resolveAction` is the only place a stored rule becomes an `Action`: it reads `command_rule` for (signed guild id, command) with a 500 ms deadline, runs `validateRule` (an invalid row logs `rule.invalid_stored` with field paths only), and calls `evaluate`, which falls back to `DEFAULT_RULES`. If the rule cannot be read at all the user gets the ephemeral "not logged" notice rather than a guess about whether the command is switched off.
 
 ---

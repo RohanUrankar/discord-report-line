@@ -16,7 +16,7 @@ describe('buttons', () => {
   });
 
   it('keeps custom_id within Discord’s 100-character limit', () => {
-    for (const button of reportButtons('9'.repeat(20)).components) {
+    for (const button of reportButtons('9'.repeat(20))?.components ?? []) {
       expect(button.custom_id.length).toBeLessThanOrEqual(100);
     }
   });
@@ -41,5 +41,16 @@ describe('buttons', () => {
     ['empty', ''],
   ])('rejects a forged custom_id: %s', (_case, customId) => {
     expect(parseReportButton(customId)).toBeUndefined();
+  });
+});
+
+describe('buttons by state', () => {
+  const customIds = (state: 'reported' | 'acknowledged' | 'escalated'): string[] =>
+    reportButtons(REPORT_ID, state)?.components.map((button) => button.custom_id) ?? [];
+
+  it('offers only the actions that would still be accepted', () => {
+    expect(customIds('reported')).toEqual([`rpt:ack:${REPORT_ID}`, `rpt:esc:${REPORT_ID}`]);
+    expect(customIds('acknowledged')).toEqual([`rpt:esc:${REPORT_ID}`]);
+    expect(reportButtons(REPORT_ID, 'escalated')).toBeUndefined();
   });
 });
