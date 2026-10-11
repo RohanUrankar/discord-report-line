@@ -66,6 +66,17 @@ export function describeRow(item: InteractionLogItem): RowStatus {
     case 'followed_up':
       return { label: 'Replied', icon: 'check_circle', tone: 'ok', needsAttention: false };
     case 'answered':
+      if (item.action?.type === 'disabled') {
+        return {
+          label: 'Refused: command is off',
+          icon: 'warning',
+          tone: 'warn',
+          needsAttention: false,
+        };
+      }
+      if (item.action?.type === 'unknown_command') {
+        return { label: 'Unknown command', icon: 'info', tone: 'neutral', needsAttention: false };
+      }
       return { label: 'Answered', icon: 'check_circle', tone: 'ok', needsAttention: false };
   }
 }

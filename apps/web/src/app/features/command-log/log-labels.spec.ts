@@ -15,6 +15,26 @@ const job = (status: 'pending' | 'processing' | 'done' | 'dead', attempts: numbe
   lastError: null,
 });
 
+describe('describeRow: refused commands', () => {
+  it.each([
+    ['disabled', 'Refused: command is off'],
+    ['unknown_command', 'Unknown command'],
+  ] as const)(
+    'WHEN the bot answered with %s THE UI SHALL say so, not just "Answered"',
+    (type, label) => {
+      const row = describeRow(
+        logItem(1, {
+          interactionStatus: 'answered',
+          job: null,
+          action: { type, mirrorStatus: 'skipped', llmTag: null },
+        }),
+      );
+      expect(row.label).toBe(label);
+      expect(row.needsAttention).toBe(false);
+    },
+  );
+});
+
 describe('describeRow', () => {
   it('WHEN the job is dead after the user got their reply THE UI SHALL say the notification failed', () => {
     const row = describeRow(logItem(1, { interactionStatus: 'followed_up', job: job('dead', 8) }));
