@@ -160,8 +160,8 @@ Discord needs a public HTTPS URL, so while developing you expose your laptop wit
    - Cloudflare quick tunnel (no account needed): `cloudflared tunnel --url http://localhost:3000`
    - ngrok: `ngrok http 3000`
 4. **Save the URL.** In the Developer Portal, General Information, set _Interactions Endpoint URL_ to `https://<your-tunnel-host>/interactions` and save. Discord sends a signed PING plus a deliberately bad signature; the save succeeds only if the server answers the first and rejects the second.
-5. **Register the command:** `npm run register-commands`. Guild commands appear instantly.
-6. **Invite the bot** with the OAuth2 URL generator: scope `bot`, permissions _View Channels_ and _Send Messages_. Then run `/status` in the server.
+5. **Invite the bot** with the OAuth2 URL generator: scopes `bot` AND `applications.commands`, permissions _View Channels_ and _Send Messages_. Do this before registering: Discord refuses to register guild commands for a server the app is not in.
+6. **Register the commands:** `npm run register-commands`. It replaces the server's whole command set in one call (`PUT /applications/{app}/guilds/{guild}/commands`), so it is safe to repeat, and guild commands appear instantly. It registers `/status` and `/report` (an optional `text` option, 1 to 1000 characters; without it the bot opens a form). It needs `DISCORD_APP_ID`, `DISCORD_GUILD_ID` and `DISCORD_BOT_TOKEN`, and optionally `DISCORD_API_BASE_URL` and `DISCORD_TIMEOUT_MS`. On failure it prints the HTTP status, Discord's error code and message, and what to try (for example "invite the bot with the applications.commands scope"). It never prints the token. Then run `/status` in the server.
 
 ## Layout
 

@@ -179,3 +179,11 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** restored the comment by hand; new files go through the Write tool, multi-point edits through a small script file.
 - **Cost:** a few minutes. A lint rule for "no-loss-of-precision" also caught me writing a snowflake as a number literal in a test, the same mistake as the step 4 item 2 entry.
 - **Lesson → guardrail:** none beyond the notes.
+
+### 2026-10-12 — step 4 item 4: zod 4 treats a missing `z.unknown()` key as required; and the backtick mistake again
+- **Believed / generated:** (a) `z.looseObject({ errors: z.unknown(), ... })` accepts a body that has no `errors` key; (b) backticks in a test written through `node -e "..."` would survive.
+- **Noticed by:** (a) three error-mapping tests got `undefined` for `code`/`message`: the whole parse failed, so every field fell back; (b) vitest/prettier `Expression expected` at a template literal that the shell had emptied.
+- **Root cause:** (a) zod 4 no longer makes `unknown` keys optional; (b) I ignored my own journal entry from earlier today.
+- **Fix:** `errors: z.unknown().optional()`; the broken test line was repaired by hand. Test files go through Write/Edit only.
+- **Cost:** a few minutes.
+- **Lesson → guardrail:** the "wrong type" and "empty input" cases in `parseDiscordErrorBody` tests would have caught (a) even without the main path.
