@@ -15,3 +15,4 @@ export {
   StatusRuleConfig,
   type CommandName,
 } from './rules.js';
+export { ApiErrorBody, ErrorCode, errorMessages } from './errors.js';
