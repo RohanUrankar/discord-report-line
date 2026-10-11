@@ -12,7 +12,7 @@
 
 **Changes 2026-10-12 (rev 7):** Step 5 decisions (§5.5): verified component numbers, the modal path, runtime rule reads, report buttons. Rule reads at runtime were missing after Step 4 (the controller used defaults only) and are now wired through one `resolveAction`.
 
-**Changes 2026-10-12 (rev 8):** Step 6 decisions. A: replay check keeps the 5-minute past window and adds a separate 60 s future-skew bound (§13 T-03). B: `/healthz` probes the database and the worker heartbeat (§14 Observability); deploy scripts (§16 Step 6, Appendix A). C: LLM tagging (§11.3 "Rev 8 tagging decisions"): fixed tag set, Gemini `generateContent` adapter, where the tag is shown, `tagState` in the dashboard API.
+**Changes 2026-10-12 (rev 8):** Step 6 decisions. A: replay check keeps the 5-minute past window and adds a separate 60 s future-skew bound (§13 T-03). B: `/healthz` probes the database and the worker heartbeat (§14 Observability); deploy scripts (§16 Step 6, Appendix A). C: LLM tagging (§11.3 "Rev 8 tagging decisions"): fixed tag set, Gemini `generateContent` adapter, where the tag is shown, `tagState` in the dashboard API. E: SSE is not built; the dashboard keeps polling every 5 s with back-off (F-13 stays an optional stretch; many free hosts buffer streams, ADR-0003 hosting note). F: secret sweep and log-redaction test against real pino output (§13 T-09). G: README, AI_NOTES.md, `seed-admin` prompts for the password when `ADMIN_PASSWORD` is unset.
 
 ---
 

@@ -303,3 +303,11 @@ Running log of moments where an AI agent's assumption or generated code turned o
 - **Fix:** reverted the port-level fixtures, kept `tagState` only where the fixture is the response type, and used `as const` in the web spec.
 - **Cost:** minutes; the compiler caught it before a test ran.
 - **Lesson → guardrail:** none needed beyond running typecheck for every workspace after a shared-schema change (api, shared and web).
+
+### 2026-10-12 — step 6 G: shell escapes corrupted a script I wrote, and the README already carried the same corruption
+- **Believed / generated:** writing `scripts/seed-admin.ts` through a shell heredoc and a `node` rewrite with `'\n'`, `'\r'` and `'\u0003'` would put those escape sequences into the file as text.
+- **Noticed by:** prettier refused the file ("Unterminated string literal"); `cat -A` showed real newline, carriage-return and Ctrl+C bytes where the escape text should be. The same inspection of `README.md` showed the PowerShell block for the standalone database had tabs and backspaces inside the Windows paths (`C:path<TAB>opgsql<BS>in`), committed back in Step 3.
+- **Root cause:** the shell layer interprets backslash sequences before the file is written. The journal already warns that shell heredocs fail here; I used one anyway for a file containing backslashes.
+- **Fix:** rewrote the script with the Write tool (no shell in between) and rebuilt the README block the same way; the Windows setup instructions in the README are now correct.
+- **Cost:** a few minutes; the README defect had been wrong for every reader on Windows since Step 3.
+- **Lesson → guardrail:** any file with backslashes or control characters is written with the Write tool, then checked with `cat -A` or prettier before it is committed.
