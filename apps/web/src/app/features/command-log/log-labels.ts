@@ -1,4 +1,5 @@
 import type {
+  ActionType,
   AttemptOutcome,
   AttemptTarget,
   AttemptView,
@@ -87,9 +88,20 @@ export function describeNotification(item: InteractionLogItem): Presentation | n
   return MIRROR[item.action.mirrorStatus];
 }
 
-/** What to call the thing the user typed. A component click has no command name. */
-export function commandLabel(item: Pick<InteractionLogItem, 'command'>): string {
-  return item.command === null ? 'Button click' : `/${item.command}`;
+const CLICK_LABEL: Partial<Record<ActionType, string>> = {
+  acknowledged: 'Button: Acknowledge',
+  escalated: 'Button: Escalate',
+};
+
+/**
+ * What to call the thing the user did. A button click has no command name, so it is named by what it did.
+ * A form submit is recorded under its command (`/report`), like the text version.
+ */
+export function commandLabel(item: Pick<InteractionLogItem, 'command' | 'action'>): string {
+  if (item.command !== null) {
+    return `/${item.command}`;
+  }
+  return (item.action && CLICK_LABEL[item.action.type]) ?? 'Button click';
 }
 
 const TARGET_LABEL: Record<AttemptTarget, string> = {

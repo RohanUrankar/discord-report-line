@@ -110,8 +110,14 @@ describe('describeNotification', () => {
 
 describe('commandLabel', () => {
   it('prefixes slash commands and names component clicks', () => {
-    expect(commandLabel({ command: 'report' })).toBe('/report');
-    expect(commandLabel({ command: null })).toBe('Button click');
+    expect(commandLabel({ command: 'report', action: null })).toBe('/report');
+    expect(commandLabel({ command: null, action: null })).toBe('Button click');
+    const click = (type: 'acknowledged' | 'escalated') => ({
+      command: null,
+      action: { type, mirrorStatus: 'skipped' as const, llmTag: null },
+    });
+    expect(commandLabel(click('acknowledged'))).toBe('Button: Acknowledge');
+    expect(commandLabel(click('escalated'))).toBe('Button: Escalate');
   });
 });
 

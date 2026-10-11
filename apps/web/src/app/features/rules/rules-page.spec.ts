@@ -7,7 +7,6 @@ import { query, queryAll, root, settle, textOf, type as typeInto } from '../../.
 import { GUILD_A, reportRule, statusRule } from '../../../testing/fixtures';
 import { ApiClient } from '../../core/api/api-client';
 import { AppError } from '../../core/errors/app-error';
-import { RULES_NOT_APPLIED_NOTICE } from '../../core/messages/copy';
 import { RulesPage } from './rules-page';
 
 const listRules = vi.fn();
@@ -67,13 +66,11 @@ describe('RulesPage', () => {
     expect(queryAll(harness.fixture, 'app-rule-editor')).toHaveLength(2);
   });
 
-  it('says plainly that saved rules are not applied to live commands yet (one constant, removable in Step 5)', async () => {
+  it('does not claim saved rules are unapplied: the bot reads them on every command (Step 5)', async () => {
     listRules.mockResolvedValue({ items: [statusRule(), reportRule()] });
     const harness = await open();
-    expect(RULES_NOT_APPLIED_NOTICE).toBe(
-      'Changes are saved but not yet applied to live commands.',
-    );
-    expect(textOf(query(harness.fixture, '[role="note"]'))).toContain(RULES_NOT_APPLIED_NOTICE!);
+    expect(query(harness.fixture, '[role="note"]')).toBeNull();
+    expect(textOf(root(harness.fixture))).not.toMatch(/not yet applied/i);
   });
 
   it('WHEN a rule is saved THE UI SHALL send that command only, then show the saved rule as customised', async () => {
