@@ -3,6 +3,8 @@ import { deferMessage, message, pong } from '../domain/discordResponses.js';
 import { errorLogFields } from '../domain/errorFields.js';
 import { REPORT_TEXT_OPTION } from '../domain/commands.js';
 import { MESSAGES } from '../domain/messages.js';
+import { parseReportButton } from '../domain/reportButtons.js';
+import { reportStateResponse, staleClickResponse } from '../domain/reportReplies.js';
 import { REPORT_MODAL_ID, REPORT_TEXT_INPUT_ID, reportModal } from '../domain/reportModal.js';
 import { statusText } from '../domain/status.js';
 import {
@@ -17,6 +19,7 @@ import type { Action } from '../domain/types.js';
 import type { Clock } from '../ports/clock.js';
 import type { LedgerService, RecordInput, RecordOutcome } from '../ports/ledger.js';
 import type { Logger } from '../ports/logger.js';
+import type { ReportActionStore } from '../ports/reportActions.js';
 import type { RuleReader } from '../ports/rules.js';
 import type { StatusReader } from '../ports/status.js';
 import { answeredRecord } from './answeredRecord.js';
@@ -57,6 +60,7 @@ export interface InteractionControllerOptions {
   clock: Clock;
   ledger: LedgerService;
   rules: RuleReader;
+  reportActions: ReportActionStore;
   statusReader: StatusReader;
   /** Called after a job was committed, so an in-process worker need not wait for its next poll. */
   onJobEnqueued?: () => void;
@@ -119,9 +123,7 @@ export class InteractionController implements InteractionHandler {
       case 'modalSubmit':
         return this.respondToModalSubmit(interaction, decision, log);
       case 'component':
-        // Buttons arrive with the next change; until then say so honestly.
-        log.warn({ kind: decision.kind }, 'interaction.unhandled_kind');
-        return message(MESSAGES.unknownButton, { ephemeral: true });
+        return this.respondToButton(interaction, decision, log);
       case 'unsupported':
         return respondToUnsupported(interaction, log);
     }
@@ -217,6 +219,64 @@ export class InteractionController implements InteractionHandler {
       ? decision.fields[REPORT_TEXT_INPUT_ID]
       : undefined;
     return this.deferReport(interaction, origin, action, validateReportText(raw), log);
+  }
+
+  /**
+   * Acknowledge / Escalate (DESIGN §5.3, §5.5). The custom_id is untrusted input: parsed strictly, then the
+   * report is looked up in the SIGNED guild, so a forged or foreign id is "not found". Both actions are
+   * database-only, so they answer inline with type 7 and need no job. A disabled /report disables its buttons.
+   */
+  private async respondToButton(
+    interaction: RawInteraction,
+    decision: Extract<RouteDecision, { kind: 'component' }>,
+    log: Logger,
+  ): Promise<InteractionResponse> {
+    const button = parseReportButton(decision.customId);
+    if (button === undefined) {
+      log.warn({ guild_id: decision.tenant.guildId }, 'interaction.button_unrecognised');
+      return message(MESSAGES.unknownButton, { ephemeral: true });
+    }
+    log.info({ guild_id: decision.tenant.guildId, action: button.action }, 'interaction.button');
+    const rule = await this.actionFor(decision.tenant.guildId, 'report', log);
+    if (rule === 'unavailable') {
+      return message(MESSAGES.notRecorded, { ephemeral: true });
+    }
+    if (rule.type === 'disabled') {
+      return message(MESSAGES.disabled, { ephemeral: true });
+    }
+    try {
+      const outcome = await withDeadline(
+        this.options.reportActions.applyClick({
+          reportId: button.reportId,
+          action: button.action,
+          interaction: {
+            id: interaction.id,
+            guildId: decision.tenant.guildId,
+            channelId: decision.tenant.channelId,
+            userId: decision.actor.userId,
+            type: INTERACTION_TYPE.MESSAGE_COMPONENT,
+            commandName: null,
+            customId: decision.customId,
+            options: null,
+            status: 'answered',
+          },
+        }),
+        this.options.recordTimeoutMs,
+      );
+      log.info({ outcome: outcome.kind }, 'interaction.button_outcome');
+      switch (outcome.kind) {
+        case 'applied':
+        case 'duplicate':
+          return reportStateResponse(button.reportId, outcome.view);
+        case 'refused':
+          return staleClickResponse(outcome.view, button.action);
+        case 'not_found':
+          return message(MESSAGES.reportNotFound, { ephemeral: true });
+      }
+    } catch (error) {
+      log.error(errorLogFields(error), 'button.record_failed');
+      return message(MESSAGES.notRecorded, { ephemeral: true });
+    }
   }
 
   private async actionFor(

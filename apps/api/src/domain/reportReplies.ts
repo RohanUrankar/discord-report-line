@@ -1,9 +1,10 @@
 // Message bodies for the report flow: the PATCH @original result and the dead-token channel fallback.
-import { isSnowflake, type MessageBody } from './discordProtocol.js';
-import { plainBody } from './discordResponses.js';
+import { isSnowflake, type InteractionResponse, type MessageBody } from './discordProtocol.js';
+import { message, plainBody, updateMessage } from './discordResponses.js';
 import { truncate } from './discordText.js';
-import { MESSAGES } from './messages.js';
+import { MESSAGES, STATE_LINES } from './messages.js';
 import { reportButtons } from './reportButtons.js';
+import type { ReportButtonAction, ReportView } from './reportState.js';
 
 /** How much of the user's own text we quote back. */
 const ECHO_MAX_LENGTH = 100;
@@ -57,4 +58,47 @@ export function reportFallbackBody(fallback: ReportFallback): MessageBody {
 
 function sanitiseReference(reference: string): string {
   return reference.replace(/[^A-Za-z0-9-]/g, '').slice(0, 32);
+}
+
+/** A user id from our own database. Anything that is not a snowflake is dropped rather than put in a mention. */
+function mentionable(userId: string | null): string | undefined {
+  return userId !== null && isSnowflake(userId) ? userId : undefined;
+}
+
+/**
+ * Type 7 after an accepted click (or a redelivered one): the rule's reply text, the mirror warning if it
+ * applies, who acknowledged and who escalated, and only the buttons still allowed. It is rebuilt from the
+ * database each time, so it never grows lines, and it holds no report text and no token.
+ */
+export function reportStateResponse(reportId: string, view: ReportView): InteractionResponse {
+  const lines = [view.replyMessage];
+  if (view.mirrorFailed) {
+    lines.push(MESSAGES.mirrorFailed);
+  }
+  const acknowledger = mentionable(view.acknowledgedBy);
+  if (acknowledger !== undefined) {
+    lines.push(STATE_LINES.acknowledgedBy(acknowledger));
+  }
+  const escalator = mentionable(view.escalatedBy);
+  if (escalator !== undefined) {
+    lines.push(STATE_LINES.escalatedBy(escalator));
+  }
+  const row = reportButtons(reportId, view.state);
+  return updateMessage(lines.join('\n'), row === undefined ? [] : [row]);
+}
+
+/** Ephemeral type 4 for a click the current state no longer allows (a stale button). */
+export function staleClickResponse(
+  view: ReportView,
+  action: ReportButtonAction,
+): InteractionResponse {
+  const escalator = mentionable(view.escalatedBy);
+  const acknowledger = mentionable(view.acknowledgedBy);
+  const text =
+    action === 'acknowledge' && view.state === 'acknowledged' && acknowledger !== undefined
+      ? STATE_LINES.alreadyAcknowledgedBy(acknowledger)
+      : escalator !== undefined
+        ? STATE_LINES.alreadyEscalatedBy(escalator)
+        : MESSAGES.reportNotFound;
+  return message(text, { ephemeral: true });
 }

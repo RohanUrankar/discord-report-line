@@ -15,6 +15,7 @@ export const MESSAGES = {
   modalLabel: "What's happening?",
   modalDescription: 'Give as much detail as you can.',
   modalPlaceholder: 'The printer on floor 2 is jammed',
+  reportNotFound: "I can't find that report on this server.",
   acknowledgeButton: 'Acknowledge',
   escalateButton: 'Escalate',
 } as const;
@@ -25,4 +26,16 @@ export const ACTION_SUMMARIES = {
   disabled: 'Replied that the command is turned off.',
   unknown_command: 'Replied that the command is not recognised.',
   report: 'Logged a report.',
+  acknowledged: 'Acknowledged a report.',
+  escalated: 'Escalated a report.',
+} as const;
+
+/** Who did what to a report, shown on the updated message. Mentions render but ping nobody (parse: []). */
+export const STATE_LINES = {
+  acknowledgedBy: (userId: string): string => `✅ Acknowledged by <@${userId}>`,
+  escalatedBy: (userId: string): string => `🚨 Escalated by <@${userId}>`,
+  alreadyAcknowledgedBy: (userId: string): string =>
+    `This report was already acknowledged by <@${userId}>.`,
+  alreadyEscalatedBy: (userId: string): string =>
+    `This report was already escalated by <@${userId}>.`,
 } as const;

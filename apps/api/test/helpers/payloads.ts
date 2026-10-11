@@ -110,3 +110,22 @@ function componentBase(type: number, id: string): Record<string, unknown> {
     member: { user: { id: USER_ID } },
   };
 }
+
+export interface ButtonClickOptions {
+  /** The click's own interaction id: the dedupe key. */
+  id: string;
+  customId: string;
+  userId?: string;
+  guildId?: string;
+}
+
+/** A MESSAGE_COMPONENT click as Discord sends it: its own id and token, plus the message it was on. */
+export function buttonPayload(options: ButtonClickOptions): Record<string, unknown> {
+  return {
+    ...componentBase(3, options.id),
+    guild_id: options.guildId ?? GUILD_ID,
+    member: { user: { id: options.userId ?? USER_ID } },
+    message: { id: '900000000000000007' },
+    data: { custom_id: options.customId, component_type: 2 },
+  };
+}

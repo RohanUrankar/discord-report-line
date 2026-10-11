@@ -24,3 +24,20 @@ export function isAllowed(state: ReportState, action: ReportButtonAction): boole
 export function availableActions(state: ReportState): ReportButtonAction[] {
   return (['acknowledge', 'escalate'] as const).filter((action) => isAllowed(state, action));
 }
+
+/** What a message about one report says right now: read from the database, never from the click. */
+export interface ReportView {
+  state: ReportState;
+  /** The rule's reply text, as snapshotted when the report was deferred. Never the report itself. */
+  replyMessage: string;
+  mirrorFailed: boolean;
+  acknowledgedBy: string | null;
+  escalatedBy: string | null;
+}
+
+export function stateOf(view: Pick<ReportView, 'acknowledgedBy' | 'escalatedBy'>): ReportState {
+  if (view.escalatedBy !== null) {
+    return 'escalated';
+  }
+  return view.acknowledgedBy !== null ? 'acknowledged' : 'reported';
+}

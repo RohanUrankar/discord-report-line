@@ -2,6 +2,7 @@ import type pg from 'pg';
 import request, { type Test } from 'supertest';
 
 import { PgLedger } from '../../src/adapters/pg/pgLedger.js';
+import { PgReportActionStore } from '../../src/adapters/pg/pgReportActionStore.js';
 import { PgRuleReader } from '../../src/adapters/pg/pgRuleReader.js';
 import { PgStatusReader } from '../../src/adapters/pg/pgStatusReader.js';
 import { InteractionController } from '../../src/app/interactions.js';
@@ -30,7 +31,12 @@ export interface WireOptions {
 export function wire(
   pool: pg.Pool,
   options: WireOptions = {},
-): { send: (payload: unknown) => Test; sink: LogSink } {
+): {
+  send: (payload: unknown) => Test;
+  sink: LogSink;
+  app: ReturnType<typeof createServer>;
+  keypair: ReturnType<typeof generateTestKeypair>;
+} {
   const keypair = generateTestKeypair();
   const sink = new LogSink();
   const clock = { nowMs: (): number => NOW_MS };
@@ -42,6 +48,7 @@ export function wire(
     clock,
     ledger: delayed(new PgLedger(pool), options.recordDelayMs),
     rules: new PgRuleReader(pool),
+    reportActions: new PgReportActionStore(pool),
     statusReader: new PgStatusReader(pool, clock),
   });
   const app = createServer({ controller, logger: createLogger('debug', sink), ...inertAuth() });
@@ -53,7 +60,7 @@ export function wire(
       .set({ ...signRequest(keypair, unixSeconds(NOW_MS), body) })
       .send(body);
   };
-  return { send, sink };
+  return { send, sink, app, keypair };
 }
 
 /** The real ledger, optionally made slow: the write still commits, just after the controller gave up. */

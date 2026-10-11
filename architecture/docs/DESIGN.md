@@ -327,6 +327,18 @@ Every deferred row above assumes the follow-up lands inside the 15-minute token 
 - *The channel fallback carries no buttons.* It is a public post made when the reply is impossible. Buttons on it would let anyone in the channel act on a report that may have been private, and the report's own text is never in it when the rule was ephemeral. The fallback shows "<@user>, your report was logged (ref …)"; the reference is the interaction id. A report that ended in a fallback therefore cannot be acknowledged or escalated from Discord; the log shows it.
 - Because the default rule is ephemeral, the default reply (and so its buttons) is visible to the reporter only. Acknowledge and Escalate are then used by the person who filed the report. Make `report.ephemeral` false to let a team act on reports. See the risk note in §5.5 "Who may click".
 
+**Button clicks (type 3).** Handled inline, database-only, answered with type 7. The slow path (type 6 plus a `component` job) is not built in v1.
+- *Order:* verify, replay check, parse, then `parseReportButton` (exact prefix, exact action, snowflake id; the router already bounds `custom_id` to 100 characters). Anything else is an ephemeral "I don't recognise that button", no write. Then the `/report` rule is resolved (see disabled, below), then one transaction in `PgReportActionStore`.
+- *Authorisation, server-side.* `guild_id` is the signed payload's; the `custom_id` supplies only a report id. The report must exist **in that guild**, be an action of type `report`, and belong to a command or modal-submit interaction. Missing, another server's, or "not a report" all return the same ephemeral "I can't find that report on this server", which is also what the dashboard-style 404 rule means here.
+- *Who may click: any member of that server* (the spec was silent). We do not check Discord permissions. **Risk, flagged:** if the rule is public (`ephemeral: false`), any member who can see the reply can acknowledge or escalate someone else's report. With the default ephemeral rule the reply is visible to the reporter only, so only they can click. A `MANAGE_GUILD` or role check from `member.permissions` would be the next step; it is not built.
+- *States* are derived from ACTION rows, not stored: `reported` → `acknowledged` or `escalated`; `acknowledged` → `escalated`; `escalated` is final; nothing goes back. Acknowledged means "seen", so escalating afterwards is allowed.
+- *Enforcement is in the database.* The transaction takes `SELECT … FOR UPDATE` on the report's own ACTION row (clicks on one report take turns), inserts the click's INTERACTION `ON CONFLICT (id) DO NOTHING RETURNING id` (the dedupe), then inserts the click's ACTION `… WHERE NOT EXISTS (blocking row for this report)`. A unique index `(report_id, type)` is the backstop. A click the state no longer allows rolls back the interaction insert, so **a refused click is not recorded**; it gets an ephemeral "This report was already acknowledged/escalated by <@user>". A redelivered, already-applied click is a duplicate and gets the same type 7 again.
+- *Why a migration* (004, `action.report_id`): the click's ACTION had no link to its report except text inside `interaction.custom_id`, which cannot carry a foreign key, a unique constraint or an index. `report_id` is set for click rows only (a CHECK says so) and carries the unique index above. No existing row changes.
+- *What is recorded:* INTERACTION `type 3`, `command_name NULL`, `custom_id` = the button's id (it holds only the report id), `status answered`, plus ACTION `acknowledged` or `escalated`. No job.
+- *The type 7 body* is rebuilt from the database each time: the rule's reply text snapshotted on the report's job, the mirror warning if it failed, "✅ Acknowledged by <@user>" and "🚨 Escalated by <@user>", and only the buttons still allowed (none after escalation, sent as `components: []`). It goes through `plainBody` (2000-character cut, `allowed_mentions: {parse: []}`: the mentions render and ping nobody) and never contains the report text or the token. Flags cannot change on type 7, so the message keeps its original visibility.
+- *What Escalate does and does not do in v1:* it records the escalation and shows it on the message. It does **not** call Slack or Discord, post to a channel, mention anyone, or create a job. (§5.3 does not ask for more.)
+- *Disabled:* a turned-off `/report` also turns off its buttons. The click gets the disabled notice and nothing is written, so "off" means off on every path.
+
 **Rules at runtime.** After Step 4 the controller still used defaults. Now `app/ruleResolution.ts: resolveAction` is the only place a stored rule becomes an `Action`: it reads `command_rule` for (signed guild id, command) with a 500 ms deadline, runs `validateRule` (an invalid row logs `rule.invalid_stored` with field paths only), and calls `evaluate`, which falls back to `DEFAULT_RULES`. If the rule cannot be read at all the user gets the ephemeral "not logged" notice rather than a guess about whether the command is switched off.
 
 ---
@@ -733,6 +745,7 @@ erDiagram
         text interaction_id FK
         text guild_id
         text type
+        text report_id FK "click rows only (rev 7)"
         text summary
         text llm_tag
         text mirror_status

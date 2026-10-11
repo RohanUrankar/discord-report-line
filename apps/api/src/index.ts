@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 
 import { PgLedger } from './adapters/pg/pgLedger.js';
 import { createRequestPool } from './adapters/pg/pool.js';
+import { PgReportActionStore } from './adapters/pg/pgReportActionStore.js';
 import { PgRuleReader } from './adapters/pg/pgRuleReader.js';
 import { PgStatusReader } from './adapters/pg/pgStatusReader.js';
 import { SystemClock } from './adapters/systemClock.js';
@@ -85,6 +86,7 @@ async function startServerWithWorker(config: ServerConfig): Promise<void> {
     clock,
     ledger: new PgLedger(requestPool),
     rules: new PgRuleReader(requestPool),
+    reportActions: new PgReportActionStore(requestPool),
     statusReader: new PgStatusReader(requestPool, clock),
     onJobEnqueued: () => {
       worker.nudge();
