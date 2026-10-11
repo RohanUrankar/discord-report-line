@@ -9,6 +9,14 @@
   },
   "dependencies": {
     "@report-line/shared": "*",
+    "express": "5.3.0",
+    "pino": "10.4.0",
     "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/supertest": "7.2.1",
+    "supertest": "7.3.1",
+    "tsx": "4.23.15"
   }
 }
