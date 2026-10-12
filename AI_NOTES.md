@@ -1,45 +1,40 @@
 # AI notes
 
-Everything below is taken from the git history, `architecture/docs/DESIGN.md` (revision log and ADRs), `docs/ai-journal.md` (a log written at the moment each AI wrong turn happened) and `docs/verification/`. Where the record does not say, the line is marked **[ROHAN: confirm]** so it can be filled in or removed rather than guessed.
+Sources: the git history, `architecture/docs/DESIGN.md`, and `docs/ai-journal.md` (written at the moment each AI mistake happened).
 
-## Tools and models
+## Tools, models and how the work was split
 
-- **Claude Code** (the CLI, on the Claude Agent SDK) was the only AI tool used to write code, tests and docs. Its commits carry `Co-Authored-By` lines: 5 early commits (the design import, workspace scaffold, shared enums, domain types, signature and retry classification) name Claude Opus 5.5, and the other 72 name Claude Sonnet 5.5. **[ROHAN: confirm which model played which role, e.g. architect vs implementers]**
-- Work was split across project agents defined in `.claude/agents/`: `backend-implementer` (apps/api, packages/shared, scripts), `frontend-implementer` (apps/web, the Angular dashboard), and `quality-verifier` (read-only black-box checks, reports in `docs/verification/`). A main session picked each build-plan step from DESIGN section 16, delegated it, reviewed the diff and committed.
-- Guard rails were code, not hopes: `.claude/hooks/` blocks writes of anything that looks like a secret and any read of the env file, limits where each agent may write, formats on edit, and re-runs typecheck, lint and tests when an agent stops. `.claude/skills/` hold the project's rules (contract-first, discord-interactions, resilience, security-secrets, and so on).
-- Library and API facts were looked up in current docs (Context7, ai.google.dev, Discord's docs) rather than recalled; the journal records the times that mattered.
-- No other AI tool is recorded in the repository. **[ROHAN: confirm none was used outside the repo, e.g. for the design phase or chat]**
+- **Claude Code** was the only AI tool used for design, code, tests and docs. Commit trailers show Claude Opus 5.5 on the first five commits (design import, workspace scaffold, shared enums, domain types, signature and retry classification) and Claude Sonnet 5.5 on the remaining 72.
+- **Design: me, with Claude as a design assistant.** I worked through requirements, quality priorities, architecture, data model, threat model, ADRs and the build plan with Claude, and made the calls that shape the system. The result is `DESIGN.md` plus the short list of invariants in `CLAUDE.md`.
+- **Implementation: Claude agents, one build step at a time.** A main session delegated each step to a `backend-implementer` or `frontend-implementer` agent, then ran an independent, read-only `quality-verifier` agent that attacks the endpoint and simulates outages. I reviewed the diffs and committed one logical change at a time.
+- **Guard rails are code, not requests.** Hooks in `.claude/hooks/` block writing anything that looks like a secret, block reading `.env`, restrict each agent to its own folders, format on edit, and re-run typecheck, lint and tests before an agent may report "done". Implementers cannot edit the design; when they disagreed with it they had to write a proposal and stop (five were raised, all reviewed). DESIGN §17 explains the full setup.
+- Library and API details were checked against current docs (Context7, Discord's developer docs, Google's Gemini docs) rather than recalled.
 
-## Decisions made by the human
+## Key decisions I made
 
-Only decisions the record attributes to an explicit instruction are listed.
+1. **Postgres as both the database and the job queue (transactional outbox), no Redis or broker.** The interaction and its job are written in one transaction before Discord gets its reply, so nothing is lost and nothing runs twice, with one datastore to operate. A broker would have added a second failure mode for less than one message a second (ADR-0001).
+2. **One managing admin per server, first claim wins.** The design had left open who may connect a server; letting any admin claim any server would let one take over another's. The database primary key enforces it. The known gap, that connecting does not prove Discord ownership, is documented; Discord OAuth2 with a `MANAGE_GUILD` check is the fix.
+3. **A Discord follow-up that fails with 401 or 404 is never retried.** It goes straight to a channel post with the bot token. Retrying a deterministic failure wastes attempts and counts towards Discord's invalid-request limit, which can get the bot's IP banned (DESIGN §11.4). Related: I chose polling every 5 seconds over server-sent events, because free hosts often buffer long-lived streams (ADR-0006).
 
-1. **Connecting a server is first-claim-wins, one managing admin per server (DESIGN rev 6, commit `d65f004`).** The record says this was done "at the human's explicit instruction" while building the connect flow. The design had left open who may claim a server; letting any admin claim any server would let one admin take over another's. The residual weakness is written down rather than hidden: connecting is not proof of Discord ownership, so anyone with a dashboard account who knows an unclaimed server's id can claim it. Discord OAuth2 with a `MANAGE_GUILD` check is the production fix (DESIGN ADR-0003 consequences, README Known limitations).
-2. **Skip server-sent events; keep the polling live log (Step 6, item E).** The Step 6 instruction for this build said to skip SSE because many free hosts buffer streams, and to document polling as solid. DESIGN rev 8 and the README record it. **[ROHAN: confirm this was your call rather than the orchestrator's recommendation]**
-3. **A follow-up that the webhook refuses with 401 or 404 is fatal and goes straight to the channel fallback, never retried (proposal 0001, DESIGN rev 2, section 11.4).** The architecture accepted the proposal with amendments; the reasoning (a retry repeats a deterministic failure and counts toward Discord's invalid-request ban) is in section 11.4. **[ROHAN: confirm you accepted this yourself]**
+## The hardest bug: saved rules that the bot never read
 
-## The hardest bug or wrong turn: five candidates, none picked
+**What the AI produced.** Step 4 delivered command configuration: a rules editor, strict validation, rows saved to `command_rule`, and a full set of passing tests. It looked finished.
 
-Listed with the commit that fixed or guards it and how it was caught. Ranking them is left to the author.
+**How it was noticed.** The audit at the start of Step 5 searched for every caller of the rule evaluator. There was exactly one, called with hard-coded defaults, next to a comment from Step 3 saying "No rule store yet: every command is enabled with its default config". Switching `/report` off in the dashboard changed nothing in Discord. The quality verifier found the same thing independently.
 
-1. **Saved rules were never read by the bot** (found in the Step 5 audit; fixed in `57cf16e`, tests in `cb84154`). Step 4 shipped rule editing with green tests, but the interaction path still used hard-coded defaults, so switching `/report` off in the dashboard changed nothing. Caught by grepping for callers of `evaluate` during the Step 5 audit, and independently by the quality-verifier's local run (finding F1; that report is not committed yet). Journal: "step 5 audit".
-2. **The landing page never left "Finding your servers" in a real browser with 200 green unit tests** (fixed in `f50ad92`). Two components both asked a shared store to load; the second saw `loading`, returned early and gave up. The unit test never had the shell, so the two callers never raced. Caught by driving the production build in Chrome. Journal: "step 4 item 6 (web)".
-3. **Three tests went red on their own when the wall clock passed a hard-coded "now"** (fixed in `a6f0f0d`). A fixed test clock was mixed with the database's real `now()` for `job.next_run_at`, so once real time passed the fixed date the worker saw the job as not due yet. They had failed since the Step 3 commit and a first agent had reported them without investigating. Caught when the full suite was run and a debug query showed a pending job with no attempts. Journal: "step 4 item 7".
-4. **A calendar-invalid log cursor gave a 500** (fixed in `53d595b`). The cursor was checked by regex shape only, and Postgres rejected month 13 at query time. Caught by the quality-verifier sending a crafted cursor; the verifier is read-only, so the first suggested fix was applied separately. Journal: "backend: log cursor timestamp validated by regex only".
-5. **Validation errors would have echoed attacker-chosen text** (fixed in `2e7ec77`). A helper described as "paths, never values" turned out to put an unknown key's name, which the caller typed, into the 400 body and the log. Caught while writing a sentinel test for an unknown key, from the test's own expectation, before it shipped. A related leak of a stored rule key name into a warning log was caught later by a test written for it (journal: "step 5: my own warning log leaked"). Journal: "step 4 item 3".
+**Why it was wrong.** Saving rules and using rules had separate acceptance criteria. Every test proved a row was written; no test proved a row was ever read. Green tests, dead feature.
 
-Also worth knowing, from the journal: the recommended `discord-interactions` `verifyKey` is asynchronous and would have been dropped into a synchronous boolean contract, which accepts every forged request if the Promise is not awaited. It was caught while reading the design, before any code, and replaced by `node:crypto` (`ec643cc`).
+**Fix.** One function, `resolveAction`, is now the only way a stored rule becomes behaviour, used by commands, the form submit and the buttons. It validates the stored row and falls back to defaults if it is corrupt. New tests change the row with SQL and check that the next command behaves differently.
+
+**Guard rail.** A rule for this project: every "configurable X" feature needs one test that changes X and observes the behaviour, not just the stored row.
+
+Runners-up, all in the journal: Discord's recommended `verifyKey` is async, so used as a boolean it would have accepted every forged request (entry 2); the landing page hung for ever in a real browser while 200 unit tests passed, because two components raced to load the same store (entry 29); tests broke on their own once real time passed a hard-coded test clock (entry 31).
 
 ## What I would add with more time
 
-- Discord OAuth2 sign-in with a `MANAGE_GUILD` check, replacing first-claim-wins server connection.
-- A live run of the Gemini tagging path with a real key, and an unattended soak of the retry and fallback paths against the real Discord and Slack services. Only local stub servers were used for those.
-- An idempotency design for the Slack mirror (the one at-most-once gap), for example posting through an API that accepts a client-supplied key.
-- Server-sent events with a fallback to polling, once a host that streams unbuffered is chosen.
-- A shared (database-backed) login throttle so it survives restarts and several instances, and a retention sweep of old done jobs.
-- Fill the deferred reply before the mirror and tag steps, so a slow Slack or Gemini never leaves a user looking at "thinking...".
-- A dedicated audit trail table for admin actions, instead of security events in the log stream.
-
-## Prompt excerpt from the trickiest moment
-
-**[ROHAN: add one short excerpt of your own prompt if you want one here; the repository does not record your prompts, so none is invented.]**
+- Deploy, then soak-test the retry and fallback paths against real Discord and Slack, and make one live Gemini call (only stubs so far).
+- Fill the Discord reply before the Slack mirror, so a slow Slack never leaves the user on "thinking…".
+- Discord OAuth2 sign-in with a `MANAGE_GUILD` check, replacing first-claim-wins.
+- A CI pipeline so typecheck, lint and tests run on every push, not only through agent hooks.
+- Close the one duplicate-post gap in the Slack mirror (Slack webhooks have no idempotency key).
+- A database-backed login throttle and a retention sweep for old jobs.
