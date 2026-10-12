@@ -2,7 +2,7 @@
 
 A Discord bot that takes reports from a server, records each one exactly once, mirrors it to a team channel, and shows an admin dashboard of what happened. Built as a Node.js + TypeScript + Express API, an Angular dashboard and PostgreSQL. The design lives in [`architecture/docs/DESIGN.md`](architecture/docs/DESIGN.md); the rules every change must respect are in [`CLAUDE.md`](CLAUDE.md).
 
-**Status: all six build steps are in.** `/report` (text or form) is recorded exactly once, deferred within 3 s, optionally tagged by Gemini, mirrored to Slack by a background worker and answered by editing the deferred reply; failed calls are retried with backoff and a dead interaction token falls back to a channel post. An admin dashboard shows every command, its action and each retry. Deployment is not done yet (see [Deployment](#deployment)).
+**Status: all six build steps are in.** `/report` (text or form) is recorded exactly once, deferred within 3 s, optionally tagged by Gemini, mirrored to Slack by a background worker and answered by editing the deferred reply; failed calls are retried with backoff and a dead interaction token falls back to a channel post. An admin dashboard shows every command, its action and each retry. It is run locally, with Discord reaching it through a tunnel (see [Connect it to Discord](#connect-it-to-discord)). The hosted deployment in [Deployment](#deployment) is a proposal and was not required.
 
 ## How it works
 
@@ -204,7 +204,7 @@ The dashboard has one seeded throwaway admin; there is no sign-up. Create it, or
 4. Running it again with the same email resets the password and ends that admin's sessions.
 5. Open the dashboard at the server's own URL, sign in, and use _Connect a server_ with your test server's ID (the bot must already be in it).
 
-No credential is stored in this repository. The admin email and password for the demo are handed over separately. [ROHAN: supply the test-server invite and the admin login to the graders in the submission message]
+No credential is stored in this repository. The admin email and password for the demo are handed over separately.
 
 **Sign-in rules (as implemented).** Passwords are hashed with argon2id. The session is an opaque id in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie (`__Host-session`), stored hashed in the database, 8 hours absolute. Every change needs a CSRF token. **Login throttle:** at most **5 attempts per IP and email per 60 seconds**, and **20 per IP per 60 seconds** (fixed windows, kept in memory so a restart clears them). Every attempt counts, successful or not, and an attempt that is refused still counts, so a client that keeps trying stays blocked until its window ends. Over the limit the answer is `429` with `Retry-After`. Behind a reverse proxy set `TRUST_PROXY_HOPS` (1 on Render), otherwise all admins share the proxy's address; the server logs `config.proxy_not_trusted` once if it sees a forwarded header while that is 0.
 
@@ -256,7 +256,7 @@ scripts/         register-commands, migrate, set-mirror-webhook
 
 ## Deployment
 
-**Status: not deployed. The host is not decided; this section is a proposal for a Render-style host, to be confirmed or replaced.** [ROHAN: choose the host and fill in the deployed URL here]
+**Status: not deployed. The brief was relaxed to "running locally is enough", so this app is run on a developer machine with a Cloudflare or ngrok tunnel for Discord. The rest of this section is an untested proposal for a Render-style host, kept for anyone who wants to deploy it.**
 
 Proposed shape (one web service, one database, nothing else):
 
@@ -285,4 +285,4 @@ Before every deploy: `npm audit --omit=dev --audit-level=high`, `npm test`, and 
 - This README and [`.env.example`](.env.example) (placeholders only).
 - [`AI_NOTES.md`](AI_NOTES.md): tools and models used, decisions, hard bugs, what to add next. The running log of AI wrong turns behind it is [`docs/ai-journal.md`](docs/ai-journal.md).
 - [`CLAUDE.md`](CLAUDE.md): the AI context file (invariants), with [`docs/agent-workflow.md`](docs/agent-workflow.md) and the `.claude/` agents, skills and hooks.
-- Test-server invite URL (above) and a throwaway admin login. [ROHAN: supply with the submission]
+- Test-server invite URL (above) and a throwaway admin login. Handed over with the submission, not stored here.
