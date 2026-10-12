@@ -13,8 +13,6 @@ services:
       - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - report_line_pgdata:/var/lib/postgresql/data
-      # Runs once, on first start of an empty volume: creates the throwaway database the tests wipe.
-      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U report_line -d report_line']
       interval: 5s

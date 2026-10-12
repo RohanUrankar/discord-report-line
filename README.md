@@ -63,7 +63,7 @@ Port 5433 is only an example of a spare port; use any free one. Stop it with `pg
 `DATABASE_URL=postgresql://report_line:<password>@127.0.0.1:5433/report_line` and
 `DATABASE_URL_TEST=postgresql://report_line:<password>@127.0.0.1:5433/report_line_test`.
 
-**Option B: Docker Compose** (Docker Desktop must be running). Set `POSTGRES_PASSWORD` in your local env file, use the same password in the URLs above (host `localhost`, port `5432`, or whatever `POSTGRES_PORT` you set), then `docker compose up -d db`. The first start also creates the `report_line_test` database.
+**Option B: Docker Compose** (Docker Desktop must be running). Set `POSTGRES_PASSWORD` in your local env file, use the same password in the URLs above (host `localhost`, port `5432`, or whatever `POSTGRES_PORT` you set), then `docker compose up -d db`. Compose creates only the `report_line` database. Create the throwaway test database once with `docker compose exec db createdb -U report_line report_line_test`. The tests truncate every table, so never point `DATABASE_URL_TEST` at `report_line`.
 
 **Option C: hosted** (for example Neon): use its pooled connection string with `?sslmode=verify-full` (the driver verifies the server certificate; never turn verification off), and a separate branch or database for `DATABASE_URL_TEST`.
 
